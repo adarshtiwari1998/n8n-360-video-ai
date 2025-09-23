@@ -38,7 +38,7 @@ export default function VideoGenerator() {
   const initializeWorkflowSteps = () => {
     const steps: WorkflowStep[] = [
       { step: 1, name: 'Webhook Triggered', description: 'Initiating n8n workflow...', completed: false },
-      { step: 2, name: 'GLM-4V Analysis', description: 'AI analyzing product image...', completed: false },
+      { step: 2, name: 'GLM-4.5 Description', description: 'AI generating product description...', completed: false },
       { step: 3, name: 'Prompt Generation', description: 'Creating 360° video prompt...', completed: false },
       { step: 4, name: 'Gemini Veo3 Video', description: 'Generating 360° rotation video...', completed: false },
       { step: 5, name: 'Video Processing', description: 'Processing and optimizing video...', completed: false },
@@ -112,7 +112,7 @@ export default function VideoGenerator() {
       // Simulate workflow steps with realistic timing
       const simulateWorkflowProgress = () => {
         const stepTimings = [
-          { step: 2, status: 'analyzing-image', progress: 30, delay: 2000 },
+          { step: 2, status: 'generating-description', progress: 30, delay: 2000 },
           { step: 3, status: 'generating-prompt', progress: 45, delay: 3000 },
           { step: 4, status: 'creating-video', progress: 65, delay: 5000 },
           { step: 5, status: 'processing-video', progress: 85, delay: 3000 }
