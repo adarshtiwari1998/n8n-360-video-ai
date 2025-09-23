@@ -19,20 +19,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`\n🚀 [${sessionId}] === 360° VIDEO GENERATION STARTED ===`);
       console.log(`📸 [${sessionId}] Product: ${product_name || 'Unnamed Product'}`);
       console.log(`📊 [${sessionId}] Image size: ${Math.round((image_data.length * 0.75) / 1024)} KB`);
+      // Extract base64 data without the data URL prefix for n8n processing
+      const base64Data = image_data.includes(',') ? image_data.split(',')[1] : image_data;
+      
       console.log(`🔗 [${sessionId}] Step 1: Triggering n8n webhook...`);
+      console.log(`📄 [${sessionId}] Payload preview: { image_base64: "${base64Data.substring(0, 50)}...", product_name: "${product_name || 'Product'}", session_id: "${sessionId}" }`);
 
-      // Step 2: Call n8n webhook
+      // Step 2: Call n8n webhook with correct payload format
+      
       const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          body: {
-            image_url: image_data,
-            product_name: product_name || 'Product',
-            session_id: sessionId
-          }
+          image_base64: base64Data,
+          image_url: image_data, // Keep for backward compatibility
+          product_name: product_name || 'Product',
+          session_id: sessionId
         }),
       });
 
