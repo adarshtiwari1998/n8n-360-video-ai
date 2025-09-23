@@ -1,0 +1,301 @@
+{
+  "name": "360° Product Video Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "create-360-video",
+        "options": {}
+      },
+      "id": "4bfe4c27-64d6-43a5-9107-6f96d7ff87b5",
+      "name": "Webhook - Upload Image",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        16
+      ],
+      "webhookId": "create-360-video"
+    },
+    {
+      "parameters": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GLM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "glm-4-plus"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"system\", \"content\": \"You are an expert at creating 360-degree product video prompts. Generate detailed prompts for smooth rotation, professional lighting, and clean backgrounds.\"}, {\"role\": \"user\", \"content\": \"Create a 360-degree rotation video prompt for this product: {{ $json.body.product_name || 'product' }}. Style: professional, clean white background, smooth 360-degree rotation, studio lighting, high quality, 4K resolution.\"}]"
+            },
+            {
+              "name": "temperature",
+              "value": 0.7
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "91757c94-3d75-4992-8cd8-b854d657e002",
+      "name": "GLM-4.5 Generate Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -800,
+        16
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "yuo3U32vjfi74b8p",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.pollo.ai/v1/image-to-video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.POLLO_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "{{ $json.body.image_url }}"
+            },
+            {
+              "name": "prompt",
+              "value": "{{ $('GLM-4.5 Generate Prompt').item.json.choices[0].message.content }}"
+            },
+            {
+              "name": "motion_strength",
+              "value": 0.8
+            },
+            {
+              "name": "duration",
+              "value": 5
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9458963e-1bb0-4480-b342-d22b4a00f9a4",
+      "name": "Generate 360° Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -592,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "rightType": "any"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "16c3f286-a0c1-41db-bef4-5d1af36e2317",
+      "name": "Video Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "68e9a3ab-b60c-4bf8-a3b7-d556797535ee",
+      "name": "Wait 10s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        208
+      ],
+      "webhookId": "dac26df4-353f-4232-91a1-e8dc11869ade"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Generate 360° Video').item.json.result_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "e730e178-0848-4b87-b94f-676d7891ad04",
+      "name": "Download Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -144,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "video/mp4"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"360_video_{{ $now }}.mp4\""
+              }
+            ]
+          }
+        }
+      },
+      "id": "98a8de29-2c1d-4b51-bcd5-5cc49203ddf3",
+      "name": "Return Video File",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -96
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Upload Image": {
+      "main": [
+        [
+          {
+            "node": "GLM-4.5 Generate Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GLM-4.5 Generate Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate 360° Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate 360° Video": {
+      "main": [
+        [
+          {
+            "node": "Video Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Ready?": {
+      "main": [
+        [
+          {
+            "node": "Download Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Generate 360° Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video": {
+      "main": [
+        [
+          {
+            "node": "Return Video File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "56dbbe24-9962-4e6d-8697-1372ab7b8b33",
+  "meta": {
+    "instanceId": "39385b3877ca8f68c2615a53c50d48fc73d1f424739eac71f9a465b4eec1634a"
+  },
+  "id": "z3zoTrHuSJxe1ZOn",
+  "tags": []
+}
