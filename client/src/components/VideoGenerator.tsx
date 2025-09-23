@@ -276,6 +276,33 @@ export default function VideoGenerator() {
                   : 'Generate 360° Video'
                 }
               </Button>
+
+              <Button
+                onClick={async () => {
+                  try {
+                    const response = await fetch('/api/test-webhook', { method: 'POST' });
+                    const data = await response.json();
+                    console.log('🔍 n8n Webhook Test Results:', data);
+                    toast({
+                      title: 'Webhook Test Results',
+                      description: `Status: ${data.status} - Check console for details`,
+                      variant: data.success ? 'default' : 'destructive',
+                    });
+                  } catch (error) {
+                    console.error('Test failed:', error);
+                    toast({
+                      title: 'Test Failed',
+                      description: 'Check console for error details',
+                      variant: 'destructive',
+                    });
+                  }
+                }}
+                variant="outline"
+                className="w-full"
+                data-testid="button-test-webhook"
+              >
+                🔍 Test n8n Webhook Connection
+              </Button>
             </div>
           </Card>
         </div>

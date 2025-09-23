@@ -40,6 +40,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
       
       try {
+        // Add detailed logging for debugging
+        console.log(`🔍 [${sessionId}] Testing n8n endpoint availability...`);
+        
         const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
           method: 'POST',
           headers: {
@@ -153,7 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (fetchError) {
         clearTimeout(timeoutId);
         
-        if (fetchError.name === 'AbortError') {
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
           console.log(`⏰ [${sessionId}] N8N request timed out after 2 minutes`);
           res.status(504).json({ 
             error: 'Timeout', 
@@ -195,6 +198,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ error: 'Status check failed' });
+    }
+  });
+
+  // Diagnostic endpoint to test n8n webhook connectivity
+  app.post('/api/test-webhook', async (req, res) => {
+    try {
+      console.log('🔍 Testing n8n webhook connectivity...');
+      
+      // Test with minimal payload
+      const testResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          test: true,
+          product_name: 'Test Product',
+          session_id: 'test_session'
+        })
+      });
+
+      const responseText = await testResponse.text();
+      
+      res.json({
+        status: testResponse.status,
+        statusText: testResponse.statusText,
+        headers: Object.fromEntries(testResponse.headers.entries()),
+        body: responseText.substring(0, 500), // First 500 chars
+        success: testResponse.ok
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        error: 'Test failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
