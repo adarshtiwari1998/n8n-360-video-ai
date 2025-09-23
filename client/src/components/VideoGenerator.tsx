@@ -134,7 +134,7 @@ export default function VideoGenerator() {
       console.log(`⏳ [Frontend] Waiting for video generation to complete...`);
       const contentType = response.headers.get('content-type') || '';
       
-      if (contentType.includes('video/')) {
+      if (contentType.includes('video/') || contentType.includes('application/octet-stream') || contentType === '' || !contentType) {
         // Video response - proceed normally
         const videoBlob = await response.blob();
         
@@ -158,19 +158,24 @@ export default function VideoGenerator() {
           title: '🎬 360° Video Generated!',
           description: `Your ${productName || 'product'} video is ready for download.`,
         });
-      } else {
+      } else if (contentType.includes('application/json')) {
         // JSON response - likely status or error
         const jsonData = await response.json();
         console.log(`📄 [Frontend] Received JSON response:`, jsonData);
         
         if (jsonData.message === 'Workflow was started') {
-          // N8N workflow started but configured for immediate response
-          throw new Error('N8N workflow is configured for immediate response. Please configure your workflow to use "Last node" response mode to return the actual video.');
+          // N8N workflow started but configured for immediate response - show detailed guidance
+          const errorMessage = jsonData.details || 'N8N workflow is configured for immediate response. Please configure your workflow to use "Last node" response mode to return the actual video.';
+          throw new Error(errorMessage);
         } else if (jsonData.error) {
           throw new Error(`N8N workflow error: ${jsonData.error}`);
         } else {
           throw new Error(`Expected video but received JSON: ${JSON.stringify(jsonData)}`);
         }
+      } else {
+        // Unknown content type - treat as error
+        const textData = await response.text();
+        throw new Error(`Unexpected response type (${contentType}): ${textData.substring(0, 200)}`);
       }
 
     } catch (error) {

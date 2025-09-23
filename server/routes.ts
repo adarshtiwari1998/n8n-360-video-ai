@@ -15,6 +15,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Image data is required' });
       }
 
+      // Validate image size (8MB limit for base64 data)
+      const imageSizeKB = Math.round((image_data.length * 0.75) / 1024);
+      if (imageSizeKB > 8192) { // 8MB limit
+        return res.status(413).json({ 
+          error: 'Image too large', 
+          details: `Image size ${imageSizeKB} KB exceeds 8MB limit`,
+          max_size: '8MB'
+        });
+      }
+
       // Step 1: Log workflow initiation
       console.log(`\n🚀 [${sessionId}] === 360° VIDEO GENERATION STARTED ===`);
       console.log(`📸 [${sessionId}] Product: ${product_name || 'Unnamed Product'}`);
@@ -25,22 +35,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`🔗 [${sessionId}] Step 1: Triggering n8n webhook...`);
       console.log(`📄 [${sessionId}] Payload preview: { image_base64: "${base64Data.substring(0, 50)}...", product_name: "${product_name || 'Product'}", session_id: "${sessionId}" }`);
 
-      // Step 2: Call n8n webhook with correct payload format
+      // Step 2: Call n8n webhook with correct payload format and timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
       
-      const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image_base64: base64Data,
-          image_url: image_data, // Keep for backward compatibility
-          product_name: product_name || 'Product',
-          session_id: sessionId
-        }),
-      });
+      try {
+        const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image_base64: base64Data,
+            image_url: image_data, // Keep for backward compatibility
+            product_name: product_name || 'Product',
+            session_id: sessionId
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
 
-      console.log(`✅ [${sessionId}] Step 2: Webhook response status: ${n8nResponse.status}`);
+        console.log(`✅ [${sessionId}] Step 2: Webhook response status: ${n8nResponse.status}`);
 
       if (!n8nResponse.ok) {
         console.log(`❌ [${sessionId}] n8n webhook failed with status: ${n8nResponse.status}`);
@@ -131,6 +147,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } else {
           res.json(jsonData);
+        }
+      }
+      
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        
+        if (fetchError.name === 'AbortError') {
+          console.log(`⏰ [${sessionId}] N8N request timed out after 2 minutes`);
+          res.status(504).json({ 
+            error: 'Timeout', 
+            details: 'N8N workflow took too long to respond. The workflow may be processing a complex video generation.',
+            session_id: sessionId
+          });
+          return;
+        } else {
+          throw fetchError; // Re-throw other fetch errors to be handled by outer catch
         }
       }
 
