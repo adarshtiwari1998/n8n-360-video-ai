@@ -93,13 +93,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const jsonData = await n8nResponse.json();
         console.log(`📄 [${sessionId}] Step 4: JSON response received:`, jsonData);
         
-        if (jsonData.error) {
+        if (jsonData.message === 'Workflow was started') {
+          console.log(`⚠️  [${sessionId}] N8N CONFIGURATION ISSUE: Workflow returned immediate response instead of waiting for completion.`);
+          console.log(`💡 [${sessionId}] SOLUTION: Configure your N8N workflow to use "Last node" response mode instead of "Respond immediately".`);
+          console.log(`🔧 [${sessionId}] In N8N: Webhook node > Settings > Response Mode > "Last node"`);
+        } else if (jsonData.error) {
           console.log(`❌ [${sessionId}] n8n workflow error:`, jsonData);
         } else {
           console.log(`ℹ️  [${sessionId}] n8n workflow status:`, jsonData);
         }
         
-        res.json(jsonData);
+        // Add helpful error context to the response
+        if (jsonData.message === 'Workflow was started') {
+          res.json({
+            ...jsonData,
+            error: 'N8N workflow configuration issue',
+            details: 'The workflow is configured for immediate response instead of waiting for completion. Please configure your N8N workflow to use "Last node" response mode.',
+            troubleshooting: {
+              issue: 'Webhook response mode is set to "Respond immediately"',
+              solution: 'Change to "Last node" in webhook settings',
+              expectedBehavior: 'Workflow should process the image and return the video file'
+            }
+          });
+        } else {
+          res.json(jsonData);
+        }
       }
 
     } catch (error) {
