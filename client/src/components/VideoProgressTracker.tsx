@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle, Clock, Zap, Download } from 'lucide-react';
 
 interface VideoProgressTrackerProps {
-  status: 'idle' | 'uploading' | 'generating-prompt' | 'creating-video' | 'processing' | 'completed' | 'error';
+  status: 'idle' | 'uploading' | 'webhook-triggered' | 'analyzing-image' | 'generating-prompt' | 'creating-video' | 'processing-video' | 'completed' | 'error';
   progress: number;
   message?: string;
 }
@@ -29,11 +29,25 @@ export default function VideoProgressTracker({ status, progress, message }: Vide
           color: 'bg-blue-500' as const,
           variant: 'default' as const
         };
+      case 'webhook-triggered':
+        return {
+          icon: <Clock className="w-4 h-4" />,
+          label: 'Webhook Triggered',
+          color: 'bg-indigo-500' as const,
+          variant: 'secondary' as const
+        };
+      case 'analyzing-image':
+        return {
+          icon: <Clock className="w-4 h-4" />,
+          label: 'Analyzing Image',
+          color: 'bg-purple-500' as const,
+          variant: 'secondary' as const
+        };
       case 'generating-prompt':
         return {
           icon: <Clock className="w-4 h-4" />,
-          label: 'AI Processing',
-          color: 'bg-purple-500' as const,
+          label: 'Generating Prompt',
+          color: 'bg-purple-600' as const,
           variant: 'secondary' as const
         };
       case 'creating-video':
@@ -43,10 +57,10 @@ export default function VideoProgressTracker({ status, progress, message }: Vide
           color: 'bg-orange-500' as const,
           variant: 'default' as const
         };
-      case 'processing':
+      case 'processing-video':
         return {
           icon: <Clock className="w-4 h-4" />,
-          label: 'Processing',
+          label: 'Processing Video',
           color: 'bg-yellow-500' as const,
           variant: 'secondary' as const
         };
@@ -105,10 +119,13 @@ export default function VideoProgressTracker({ status, progress, message }: Vide
           </p>
         )}
 
-        {status === 'creating-video' && (
+        {(status === 'creating-video' || status === 'processing-video') && (
           <div className="bg-muted/50 p-3 rounded-lg">
             <p className="text-xs text-muted-foreground">
-              ⚡ Creating your 360° video with AI... This typically takes 30-60 seconds
+              {status === 'creating-video' 
+                ? '🎬 Gemini Veo3 is creating your 360° video... This typically takes 30-60 seconds'
+                : '⚙️ Processing and optimizing your video for download...'
+              }
             </p>
           </div>
         )}

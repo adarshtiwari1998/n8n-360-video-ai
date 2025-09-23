@@ -9,12 +9,20 @@ import FileUploadZone from './FileUploadZone';
 import VideoProgressTracker from './VideoProgressTracker';
 import VideoResultCard from './VideoResultCard';
 
-type GenerationStatus = 'idle' | 'uploading' | 'generating-prompt' | 'creating-video' | 'processing' | 'completed' | 'error';
+type GenerationStatus = 'idle' | 'uploading' | 'webhook-triggered' | 'analyzing-image' | 'generating-prompt' | 'creating-video' | 'processing-video' | 'completed' | 'error';
 
 interface GenerationResult {
   videoUrl: string;
   filename: string;
   fileSize: number;
+}
+
+interface WorkflowStep {
+  step: number;
+  name: string;
+  description: string;
+  completed: boolean;
+  timestamp?: string;
 }
 
 export default function VideoGenerator() {
@@ -23,7 +31,30 @@ export default function VideoGenerator() {
   const [status, setStatus] = useState<GenerationStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<GenerationResult | null>(null);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
+  const [sessionId, setSessionId] = useState<string>('');
   const { toast } = useToast();
+
+  const initializeWorkflowSteps = () => {
+    const steps: WorkflowStep[] = [
+      { step: 1, name: 'Webhook Triggered', description: 'Initiating n8n workflow...', completed: false },
+      { step: 2, name: 'GLM-4V Analysis', description: 'AI analyzing product image...', completed: false },
+      { step: 3, name: 'Prompt Generation', description: 'Creating 360° video prompt...', completed: false },
+      { step: 4, name: 'Gemini Veo3 Video', description: 'Generating 360° rotation video...', completed: false },
+      { step: 5, name: 'Video Processing', description: 'Processing and optimizing video...', completed: false },
+      { step: 6, name: 'Complete', description: 'Video ready for download!', completed: false }
+    ];
+    setWorkflowSteps(steps);
+    return steps;
+  };
+
+  const updateWorkflowStep = (stepNumber: number, completed: boolean = true) => {
+    setWorkflowSteps(prev => prev.map(step => 
+      step.step === stepNumber 
+        ? { ...step, completed, timestamp: completed ? new Date().toLocaleTimeString() : undefined }
+        : step
+    ));
+  };
 
   const generateVideo = async () => {
     if (!selectedFile) {
@@ -36,10 +67,16 @@ export default function VideoGenerator() {
     }
 
     try {
-      // Reset states
+      // Reset states and initialize workflow tracking
       setResult(null);
+      const currentSessionId = `session_${Date.now()}`;
+      setSessionId(currentSessionId);
+      const steps = initializeWorkflowSteps();
+      
       setStatus('uploading');
-      setProgress(10);
+      setProgress(5);
+
+      console.log(`🚀 [Frontend] Starting video generation for session: ${currentSessionId}`);
 
       // Convert image to base64
       const base64 = await new Promise<string>((resolve) => {
@@ -48,10 +85,15 @@ export default function VideoGenerator() {
         reader.readAsDataURL(selectedFile);
       });
 
-      setStatus('generating-prompt');
-      setProgress(30);
+      console.log(`📸 [Frontend] Image converted to base64, size: ${Math.round((base64.length * 0.75) / 1024)} KB`);
 
-      // Call our backend API (which will proxy to n8n to avoid CORS)
+      // Step 1: Webhook triggered
+      setStatus('webhook-triggered');
+      setProgress(15);
+      updateWorkflowStep(1);
+      console.log(`🔗 [Frontend] Step 1: Triggering n8n webhook...`);
+
+      // Call our backend API (which will proxy to n8n)
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -61,24 +103,42 @@ export default function VideoGenerator() {
         }),
       });
 
-      setStatus('creating-video');
-      setProgress(50);
+      console.log(`✅ [Frontend] Backend response status: ${response.status}`);
 
       if (!response.ok) {
         throw new Error('Video generation failed');
       }
 
-      // Simulate processing time
-      const processingInterval = setInterval(() => {
-        setProgress((prev) => Math.min(prev + 5, 95));
-      }, 1000);
+      // Simulate workflow steps with realistic timing
+      const simulateWorkflowProgress = () => {
+        const stepTimings = [
+          { step: 2, status: 'analyzing-image', progress: 30, delay: 2000 },
+          { step: 3, status: 'generating-prompt', progress: 45, delay: 3000 },
+          { step: 4, status: 'creating-video', progress: 65, delay: 5000 },
+          { step: 5, status: 'processing-video', progress: 85, delay: 3000 }
+        ];
 
-      // Wait for response
+        stepTimings.forEach(({ step, status, progress, delay }) => {
+          setTimeout(() => {
+            setStatus(status as GenerationStatus);
+            setProgress(progress);
+            updateWorkflowStep(step);
+            console.log(`🔄 [Frontend] Step ${step}: ${status} (${progress}%)`);
+          }, delay);
+        });
+      };
+
+      simulateWorkflowProgress();
+
+      // Wait for video response
+      console.log(`⏳ [Frontend] Waiting for video generation to complete...`);
       const videoBlob = await response.blob();
-      clearInterval(processingInterval);
-
+      
+      // Step 6: Complete
       setStatus('completed');
       setProgress(100);
+      updateWorkflowStep(6);
+      console.log(`🎉 [Frontend] Video generation completed! Size: ${Math.round(videoBlob.size / 1024)} KB`);
 
       // Create result
       const videoUrl = URL.createObjectURL(videoBlob);
@@ -91,16 +151,22 @@ export default function VideoGenerator() {
       });
 
       toast({
-        title: '360° Video Generated!',
-        description: 'Your product video is ready for download.',
+        title: '🎬 360° Video Generated!',
+        description: `Your ${productName || 'product'} video is ready for download.`,
       });
 
     } catch (error) {
-      console.error('Video generation error:', error);
+      console.error(`❌ [Frontend] Video generation error:`, error);
       setStatus('error');
+      
+      // Mark current step as failed
+      setWorkflowSteps(prev => prev.map(step => 
+        !step.completed ? { ...step, completed: false, timestamp: 'Failed' } : step
+      ));
+      
       toast({
         title: 'Generation Failed',
-        description: 'There was an error creating your video. Please try again.',
+        description: 'There was an error creating your video. Check the console for detailed logs.',
         variant: 'destructive',
       });
     }
@@ -128,6 +194,9 @@ export default function VideoGenerator() {
     setStatus('idle');
     setProgress(0);
     setResult(null);
+    setWorkflowSteps([]);
+    setSessionId('');
+    console.log(`🔄 [Frontend] Starting new video generation session`);
   };
 
   return (
@@ -173,13 +242,13 @@ export default function VideoGenerator() {
 
               <Button
                 onClick={generateVideo}
-                disabled={!selectedFile || status === 'creating-video' || status === 'processing'}
+                disabled={!selectedFile || status === 'creating-video' || status === 'processing-video'}
                 className="w-full"
                 size="lg"
                 data-testid="button-generate-video"
               >
                 <Wand2 className="w-4 h-4 mr-2" />
-                {status === 'creating-video' || status === 'processing' 
+                {status === 'creating-video' || status === 'processing-video' 
                   ? 'Generating Video...' 
                   : 'Generate 360° Video'
                 }
@@ -195,6 +264,49 @@ export default function VideoGenerator() {
             progress={progress}
             message={status === 'creating-video' ? 'AI is creating your 360° rotation video...' : undefined}
           />
+
+          {/* Detailed Workflow Steps */}
+          {workflowSteps.length > 0 && (
+            <Card className="p-6">
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  n8n Workflow Progress
+                </h3>
+                <div className="space-y-3">
+                  {workflowSteps.map((step) => (
+                    <div key={step.step} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                      step.completed ? 'bg-green-50 dark:bg-green-900/20' : 
+                      status !== 'idle' && !step.completed ? 'bg-blue-50 dark:bg-blue-900/20' : 
+                      'bg-muted/30'
+                    }`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${
+                        step.completed ? 'bg-green-500 text-white' :
+                        status !== 'idle' && !step.completed ? 'bg-blue-500 text-white' :
+                        'bg-muted text-muted-foreground'
+                      }`}>
+                        {step.completed ? '✓' : step.step}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">{step.name}</div>
+                        <div className="text-sm text-muted-foreground">{step.description}</div>
+                      </div>
+                      {step.timestamp && (
+                        <div className="text-xs text-muted-foreground">
+                          {step.timestamp}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {sessionId && (
+                  <div className="text-xs text-muted-foreground border-t pt-2">
+                    Session ID: <code className="bg-muted px-1 rounded">{sessionId}</code>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
 
           {result && (
             <VideoResultCard
