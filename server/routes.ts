@@ -162,7 +162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           return;
         } else {
-          throw fetchError; // Re-throw other fetch errors to be handled by outer catch
+          throw fetchError as Error; // Re-throw other fetch errors to be handled by outer catch
         }
       }
 
