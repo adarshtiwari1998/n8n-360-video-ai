@@ -146,7 +146,7 @@ export default function VideoGenerator() {
 
         // Create result
         const videoUrl = URL.createObjectURL(videoBlob);
-        const filename = `360_${productName.replace(/\\s+/g, '_')}_${Date.now()}.mp4`;
+        const filename = `360_${productName.replace(/\s+/g, '_')}_${Date.now()}.mp4`;
         
         setResult({
           videoUrl,

@@ -51,12 +51,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contentType = n8nResponse.headers.get('content-type');
       console.log(`📋 [${sessionId}] Step 3: Response content-type: ${contentType}`);
       
-      if (contentType?.includes('video/')) {
+      if (contentType?.includes('video/') || contentType?.includes('application/octet-stream') || !contentType) {
         // Video content received - workflow completed successfully
         console.log(`🎬 [${sessionId}] Step 4: Video content received, streaming to client...`);
         
-        res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Content-Disposition', `attachment; filename="360_video_${Date.now()}.mp4"`);
+        // Forward upstream content-type and disposition if available, otherwise default
+        const upstreamContentType = n8nResponse.headers.get('content-type') || 'video/mp4';
+        const upstreamDisposition = n8nResponse.headers.get('content-disposition') || `attachment; filename="360_video_${Date.now()}.mp4"`;
+        
+        res.setHeader('Content-Type', upstreamContentType);
+        res.setHeader('Content-Disposition', upstreamDisposition);
         
         let totalBytes = 0;
         const reader = n8nResponse.body?.getReader();
@@ -89,9 +93,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           res.status(500).json({ error: 'No video data received' });
         }
       } else {
-        // JSON response (might be status or error)
-        const jsonData = await n8nResponse.json();
-        console.log(`📄 [${sessionId}] Step 4: JSON response received:`, jsonData);
+        // JSON or text response (might be status or error)
+        let responseData;
+        try {
+          responseData = await n8nResponse.json();
+          console.log(`📄 [${sessionId}] Step 4: JSON response received:`, responseData);
+        } catch (parseError) {
+          // Not valid JSON, try as text
+          const textData = await n8nResponse.text();
+          console.log(`📄 [${sessionId}] Step 4: Text response received:`, textData.substring(0, 200));
+          responseData = { error: 'Invalid response format', details: textData };
+        }
+        
+        const jsonData = responseData;
         
         if (jsonData.message === 'Workflow was started') {
           console.log(`⚠️  [${sessionId}] N8N CONFIGURATION ISSUE: Workflow returned immediate response instead of waiting for completion.`);
