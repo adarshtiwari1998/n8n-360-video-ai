@@ -130,30 +130,48 @@ export default function VideoGenerator() {
 
       simulateWorkflowProgress();
 
-      // Wait for video response
+      // Check response type and handle accordingly
       console.log(`⏳ [Frontend] Waiting for video generation to complete...`);
-      const videoBlob = await response.blob();
+      const contentType = response.headers.get('content-type') || '';
       
-      // Step 6: Complete
-      setStatus('completed');
-      setProgress(100);
-      updateWorkflowStep(6);
-      console.log(`🎉 [Frontend] Video generation completed! Size: ${Math.round(videoBlob.size / 1024)} KB`);
+      if (contentType.includes('video/')) {
+        // Video response - proceed normally
+        const videoBlob = await response.blob();
+        
+        // Step 6: Complete
+        setStatus('completed');
+        setProgress(100);
+        updateWorkflowStep(6);
+        console.log(`🎉 [Frontend] Video generation completed! Size: ${Math.round(videoBlob.size / 1024)} KB`);
 
-      // Create result
-      const videoUrl = URL.createObjectURL(videoBlob);
-      const filename = `360_${productName.replace(/\\s+/g, '_')}_${Date.now()}.mp4`;
-      
-      setResult({
-        videoUrl,
-        filename,
-        fileSize: videoBlob.size,
-      });
+        // Create result
+        const videoUrl = URL.createObjectURL(videoBlob);
+        const filename = `360_${productName.replace(/\\s+/g, '_')}_${Date.now()}.mp4`;
+        
+        setResult({
+          videoUrl,
+          filename,
+          fileSize: videoBlob.size,
+        });
 
-      toast({
-        title: '🎬 360° Video Generated!',
-        description: `Your ${productName || 'product'} video is ready for download.`,
-      });
+        toast({
+          title: '🎬 360° Video Generated!',
+          description: `Your ${productName || 'product'} video is ready for download.`,
+        });
+      } else {
+        // JSON response - likely status or error
+        const jsonData = await response.json();
+        console.log(`📄 [Frontend] Received JSON response:`, jsonData);
+        
+        if (jsonData.message === 'Workflow was started') {
+          // N8N workflow started but configured for immediate response
+          throw new Error('N8N workflow is configured for immediate response. Please configure your workflow to use "Last node" response mode to return the actual video.');
+        } else if (jsonData.error) {
+          throw new Error(`N8N workflow error: ${jsonData.error}`);
+        } else {
+          throw new Error(`Expected video but received JSON: ${JSON.stringify(jsonData)}`);
+        }
+      }
 
     } catch (error) {
       console.error(`❌ [Frontend] Video generation error:`, error);
