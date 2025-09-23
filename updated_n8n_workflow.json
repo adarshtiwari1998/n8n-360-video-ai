@@ -1,0 +1,378 @@
+{
+  "name": "360° Product Video Generator - GLM-4.5 + Pika Labs",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "create-360-video",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c9ec4b72-77ac-4c30-8ab6-0b4410dbe5e8",
+      "name": "Webhook - Upload Image",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1168,
+        160
+      ],
+      "webhookId": "create-360-video"
+    },
+    {
+      "parameters": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GLM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "glm-4-flash"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"system\", \"content\": \"You are an expert product description writer. Create detailed descriptions for 360-degree video generation based on product names and types.\"}, {\"role\": \"user\", \"content\": \"Create a detailed product description for 360-degree video generation. Product name: {{ $json.body.product_name || 'Product' }}. Include: product type, key features, materials, colors, and optimal viewing angles for a professional product showcase. Make it concise but descriptive for AI video generation.\"}]"
+            },
+            {
+              "name": "temperature",
+              "value": 0.7
+            },
+            {
+              "name": "max_tokens",
+              "value": 500
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "588de771-1ac0-4456-a4d7-0b43ca25b4f9",
+      "name": "GLM-4.5 Generate Description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -960,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "yuo3U32vjfi74b8p",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract product description and create 360° video prompt\nconst description = $json.choices[0].message.content;\nconst productName = $('Webhook - Upload Image').item.json.body.product_name || 'product';\nconst imageBase64 = $('Webhook - Upload Image').item.json.body.image_base64;\n\n// Create optimized 360° rotation prompt for Pika Labs\nconst videoPrompt = `Create a smooth 360-degree rotation video of this ${productName}. ${description}. Style: Professional product showcase, clean white background, smooth rotation, studio lighting, high-quality commercial video`;\n\n// Convert base64 to proper format\nconst cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;\n\nreturn {\n  video_prompt: videoPrompt,\n  image_base64: cleanBase64,\n  product_name: productName,\n  session_id: $('Webhook - Upload Image').item.json.body.session_id || 'session_' + Date.now()\n};"
+      },
+      "id": "f2853e30-f61d-4838-9abc-81938203a574",
+      "name": "Create Video Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pika.art/v1/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.PIKA_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "{{ $json.video_prompt }}"
+            },
+            {
+              "name": "image",
+              "value": "data:image/jpeg;base64,{{ $json.image_base64 }}"
+            },
+            {
+              "name": "duration",
+              "value": "5"
+            },
+            {
+              "name": "motion_strength",
+              "value": "medium"
+            },
+            {
+              "name": "aspect_ratio",
+              "value": "16:9"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "20d97a1e-e528-4fe5-a25f-7dd8093573b2",
+      "name": "Pika Labs - Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -560,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.video_url || $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1fa821a3-b8f9-4653-ab0f-868f0cc15e77",
+      "name": "Video Generated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "6215780e-6dde-4be7-b55f-285fd0b92e24",
+      "name": "Wait 10s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        352
+      ],
+      "webhookId": "retry-wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Pika Labs response\nconst response = $json;\n\n// If video URL is ready, return it\nif (response.video_url) {\n  return {\n    success: true,\n    video_url: response.video_url,\n    filename: `360_video_${$('Webhook - Upload Image').item.json.body.session_id || Date.now()}.mp4`,\n    message: '360° video generated successfully!',\n    timestamp: new Date().toISOString()\n  };\n}\n\n// If we have a job ID, return processing status\nif (response.id || response.job_id) {\n  return {\n    success: false,\n    processing: true,\n    job_id: response.id || response.job_id,\n    message: 'Video is being processed. Please wait...',\n    timestamp: new Date().toISOString()\n  };\n}\n\n// If no usable response\nreturn {\n  success: false,\n  error: 'Invalid response from video service',\n  details: response,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "d3959af4-ec20-456e-9cbc-95df17f18e3a",
+      "name": "Process Video Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "87c862f1-4209-43fe-9287-f08ec1fe2580",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        48,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alternative: Use Runway Gen-3 API as fallback\nconst productName = $('Webhook - Upload Image').item.json.body.product_name || 'product';\nconst imageBase64 = $('Webhook - Upload Image').item.json.body.image_base64;\nconst videoPrompt = $('Create Video Prompt').item.json.video_prompt;\n\n// Create fallback response with instructions\nconst fallbackResponse = {\n  success: false,\n  error: 'Pika Labs API not available',\n  message: 'Please set up your PIKA_API_KEY environment variable or try an alternative service',\n  alternatives: {\n    runway: 'https://api.runwayml.com/v1/generate',\n    haiper: 'https://api.haiper.ai/v1/video/generate',\n    kling: 'https://api.kling.ai/v1/videos/generations'\n  },\n  prompt_used: videoPrompt,\n  timestamp: new Date().toISOString()\n};\n\nreturn fallbackResponse;"
+      },
+      "id": "0f163a3f-db14-4f00-919e-12d05b6552f2",
+      "name": "Fallback Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "2e632396-0073-4446-afee-d25de68e8922",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        560
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Upload Image": {
+      "main": [
+        [
+          {
+            "node": "GLM-4.5 Generate Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GLM-4.5 Generate Description": {
+      "main": [
+        [
+          {
+            "node": "Create Video Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video Prompt": {
+      "main": [
+        [
+          {
+            "node": "Pika Labs - Generate Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pika Labs - Generate Video": {
+      "main": [
+        [
+          {
+            "node": "Video Generated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Generated?": {
+      "main": [
+        [
+          {
+            "node": "Process Video Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Fallback Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Video Response": {
+      "main": [
+        [
+          {
+            "node": "Return Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Handler": {
+      "main": [
+        [
+          {
+            "node": "Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "new-pika-workflow",
+  "meta": {
+    "instanceId": "pika-labs-integration"
+  },
+  "id": "z3zoTrHuSJxe1ZOn",
+  "tags": []
+}
