@@ -5,6 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "create-360-video",
+        "responseMode": "lastNode",
         "options": {}
       },
       "id": "webhook-upload",
