@@ -1,0 +1,15 @@
+{
+  "name": "Debug Vertex AI Authentication",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Debug Vertex AI Environment Variables\nconst debugInfo = {\n  project_id: $env.VERTEX_AI_PROJECT_ID,\n  token_exists: !!$env.VERTEX_AI_ACCESS_TOKEN,\n  token_preview: $env.VERTEX_AI_ACCESS_TOKEN ? $env.VERTEX_AI_ACCESS_TOKEN.substring(0, 20) + '...' : 'NOT_FOUND',\n  token_length: $env.VERTEX_AI_ACCESS_TOKEN ? $env.VERTEX_AI_ACCESS_TOKEN.length : 0,\n  environment: process.env.NODE_ENV || 'unknown',\n  timestamp: new Date().toISOString()\n};\n\nconsole.log('🔍 Vertex AI Debug Info:', JSON.stringify(debugInfo, null, 2));\n\nreturn debugInfo;"
+      },
+      "id": "debug-vertex-ai",
+      "name": "Debug Vertex AI Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-500, 100]
+    }
+  ]
+}
