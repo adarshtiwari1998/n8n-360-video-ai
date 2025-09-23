@@ -43,7 +43,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Add detailed logging for debugging
         console.log(`🔍 [${sessionId}] Testing n8n endpoint availability...`);
         
-        const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+        const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook-test/create-360-video', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -207,7 +207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('🔍 Testing n8n webhook connectivity...');
       
       // Test with minimal payload
-      const testResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+      const testResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook-test/create-360-video', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
