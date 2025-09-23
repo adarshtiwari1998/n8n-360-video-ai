@@ -1,0 +1,316 @@
+{
+  "name": "360° Product Video Generator - GLM-4.5 + Gemini Veo3 (WORKING)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "create-360-video",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-upload",
+      "name": "Webhook - Upload Image",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-1000, 100],
+      "webhookId": "create-360-video"
+    },
+    {
+      "parameters": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.GLM_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "glm-4-flash"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\": \"system\", \"content\": \"You are an expert product description writer. Create detailed descriptions for 360-degree video generation based on product names and types.\"}, {\"role\": \"user\", \"content\": \"Create a detailed product description for 360-degree video generation. Product name: {{ $json.body.product_name || 'Product' }}. Include: product type, key features, materials, colors, and optimal viewing angles for a professional product showcase video. Be specific and detailed.\"}]"
+            },
+            {
+              "name": "temperature",
+              "value": 0.7
+            },
+            {
+              "name": "max_tokens",
+              "value": 500
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "glm-analyze",
+      "name": "GLM-4.5 Generate Description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-800, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract product description and create 360° video prompt\nconst description = $json.choices[0].message.content;\nconst productName = $('Webhook - Upload Image').item.json.body.product_name || 'product';\nconst imageBase64 = $('Webhook - Upload Image').item.json.body.image_base64;\n\n// Create optimized 360° rotation prompt\nconst videoPrompt = `Create a smooth 360-degree rotation video of this ${productName}. ${description}. \nStyle: Professional product showcase, clean white background, studio lighting, smooth rotation clockwise.\nCamera: Fixed position, product rotates smoothly in center frame.\nDuration: 8 seconds, seamless loop, high quality 720p.\nLighting: Even, professional studio lighting highlighting product features.\nFocus: Keep product in sharp focus throughout rotation.`;\n\nreturn {\n  video_prompt: videoPrompt,\n  product_name: productName,\n  image_base64: imageBase64,\n  description: description\n};"
+      },
+      "id": "create-prompt",
+      "name": "Create Video Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-600, 100]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "{{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "=[{\"role\": \"user\", \"parts\": [{\"text\": \"{{ $json.video_prompt }}\"}, {\"inlineData\": {\"mimeType\": \"image/jpeg\", \"data\": \"{{ $json.image_base64.split(',')[1] || $json.image_base64 }}\"}}]}]"
+            },
+            {
+              "name": "generationConfig",
+              "value": "={\"responseModalities\": [\"VIDEO\"], \"videoConfig\": {\"resolution\": \"720p\", \"aspectRatio\": \"16:9\", \"duration\": \"8s\"}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "gemini-video",
+      "name": "Gemini 2.0 Flash - Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-400, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.candidates && $json.candidates[0] && $json.candidates[0].content }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "video-ready",
+      "name": "Video Generated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-200, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract video data from Gemini response\nconst response = $json;\n\nif (response.candidates && response.candidates[0] && response.candidates[0].content) {\n  const content = response.candidates[0].content;\n  \n  // Look for video data in the response\n  for (const part of content.parts) {\n    if (part.inlineData && part.inlineData.mimeType === 'video/mp4') {\n      const videoBase64 = part.inlineData.data;\n      const videoBuffer = Buffer.from(videoBase64, 'base64');\n      \n      return {\n        video_data: videoBuffer,\n        filename: `360_video_${Date.now()}.mp4`,\n        size: videoBuffer.length,\n        mimeType: 'video/mp4',\n        success: true\n      };\n    }\n  }\n}\n\n// If no video found, check for error or processing status\nif (response.error) {\n  throw new Error(`Gemini API Error: ${response.error.message || 'Unknown error'}`);\n}\n\nthrow new Error('No video data found in Gemini response');"
+      },
+      "id": "process-video",
+      "name": "Process Video Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "video/mp4"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "attachment; filename=\"{{ $json.filename }}\""
+              },
+              {
+                "name": "Content-Length",
+                "value": "{{ $json.size }}"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          },
+          "responseData": "={{ $json.video_data }}"
+        }
+      },
+      "id": "return-video",
+      "name": "Return Video File",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error handling - return detailed error message\nconst errorMsg = {\n  error: 'Video generation failed',\n  message: 'Unable to generate 360° video. Please check your API configuration.',\n  timestamp: new Date().toISOString(),\n  troubleshooting: {\n    'Required Environment Variables': [\n      'GEMINI_API_KEY - Get from https://aistudio.google.com/app/apikey',\n      'GLM_API_KEY - Your GLM API key'\n    ],\n    'Common Issues': [\n      'API key invalid or expired',\n      'Quota exceeded',\n      'Image too large (max 20MB)',\n      'Prompt too long or contains prohibited content'\n    ],\n    'Support': 'Check API documentation and quotas'\n  }\n};\n\nreturn errorMsg;"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-200, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "return-error",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [0, 300]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Upload Image": {
+      "main": [
+        [
+          {
+            "node": "GLM-4.5 Generate Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GLM-4.5 Generate Description": {
+      "main": [
+        [
+          {
+            "node": "Create Video Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video Prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini 2.0 Flash - Generate Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 2.0 Flash - Generate Video": {
+      "main": [
+        [
+          {
+            "node": "Video Generated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Generated?": {
+      "main": [
+        [
+          {
+            "node": "Process Video Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Video Data": {
+      "main": [
+        [
+          {
+            "node": "Return Video File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "360-video-generator-gemini-working"
+}
