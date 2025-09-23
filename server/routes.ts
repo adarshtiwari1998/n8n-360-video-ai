@@ -13,7 +13,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Proxy request to n8n webhook to avoid CORS issues
-      const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/23of1hL5JeJ12On', {
+      const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/z3zoTrHuSJxe1ZOn', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
