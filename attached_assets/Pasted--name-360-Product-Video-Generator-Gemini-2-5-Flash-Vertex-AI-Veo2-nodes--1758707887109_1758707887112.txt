@@ -1,0 +1,465 @@
+{
+  "name": "360° Product Video Generator - Gemini 2.5 Flash + Vertex AI Veo2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "create-360-video",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "https://b28cd82a-3757-4aa9-8e91-2aad12351522-00-2zqkuf0iw84a4.worf.replit.dev/"
+        }
+      },
+      "id": "09dadfce-61ed-41b9-8cfb-5dd259e39990",
+      "name": "Webhook - Upload Image",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1872,
+        240
+      ],
+      "webhookId": "create-360-video",
+      "alwaysOutputData": false,
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.image_base64 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f59fd458-b770-478e-ab4c-8a9922852037",
+      "name": "Check if Real Request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1648,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  status: 'success',\n  message: 'n8n webhook connection test successful',\n  timestamp: new Date().toISOString(),\n  connection: 'working'\n};"
+      },
+      "id": "d6996562-4e72-4fbb-829e-d93548926941",
+      "name": "Create Test Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1808,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "4c0e1e7e-ff88-4fae-b6ea-546f4ac4565d",
+      "name": "Test Connection Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1552,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "a86b0a03-d3b6-4a5c-add7-f77401006f67",
+      "name": "Gemini Generate Description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1424,
+        256
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6kIiR4AmK6xu6Rqf",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract product description and create 360° video prompt\nconst response = $json;\nconsole.log('Gemini API Response:', JSON.stringify(response, null, 2));\n\nif (!response.candidates || !response.candidates[0] || !response.candidates[0].content) {\n  throw new Error('Invalid Gemini API response: ' + JSON.stringify(response));\n}\n\nconst description = response.candidates[0].content.parts[0].text;\nconst productName = $('Webhook - Upload Image').item.json.product_name || 'product';\nconst imageBase64Raw = $('Webhook - Upload Image').item.json.image_base64;\nconst imageBase64 = imageBase64Raw.indexOf('base64,') > -1 ? imageBase64Raw.split(',')[1] : imageBase64Raw;\nconst projectId = $env.VERTEX_AI_PROJECT_ID || 'your-project-id';\n\n// Create optimized 360° video prompt\nconst videoPrompt = `Create a smooth 360-degree rotating product video of this ${productName}. ${description} \n\nVideo specifications:\n- Smooth 360-degree rotation showing all angles\n- Professional lighting highlighting key features\n- Clean background\n- Emphasize the product's best qualities\n- Duration: 8 seconds\n- High quality, commercial-grade appearance\n- The rotation should be steady and showcase the product's design effectively`;\n\nconsole.log('Generated video prompt:', videoPrompt);\nconsole.log('Using project ID:', projectId);\n\nreturn {\n  video_prompt: videoPrompt,\n  image_base64: imageBase64,\n  project_id: projectId,\n  product_name: productName,\n  original_description: description\n};"
+      },
+      "id": "ba121308-fbc7-490d-9799-8aec3fec9a53",
+      "name": "Create Video Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1232,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://aiplatform.googleapis.com/v1/projects/{{ $json.project_id }}/locations/us-central1/publishers/google/models/veo-2.0-generate-001:predict",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.VERTEX_AI_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "b107964c-35dd-46fb-be6c-fd5beeacb916",
+      "name": "Vertex AI Veo2 - Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1040,
+        256
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6kIiR4AmK6xu6Rqf",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.predictions && $json.predictions[0] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "affd23c6-e329-4337-8c55-0756ef9d3688",
+      "name": "Video Generated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "3208086f-af0c-440d-9767-92f6861ab959",
+      "name": "Wait 10s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        -848,
+        448
+      ],
+      "webhookId": "retry-wait"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract video data from Vertex AI Veo2 response\nconst response = $json;\nconsole.log('Veo2 Response:', JSON.stringify(response, null, 2));\n\nif (response.predictions && response.predictions[0]) {\n  const prediction = response.predictions[0];\n  \n  // Check if video data is available directly\n  if (prediction.videoBytes) {\n    // Direct video bytes\n    const videoBuffer = Buffer.from(prediction.videoBytes, 'base64');\n    \n    return {\n      video_data: videoBuffer,\n      filename: `360_video_${Date.now()}.mp4`,\n      size: videoBuffer.length,\n      status: 'completed',\n      message: '360° video generated successfully'\n    };\n  }\n  \n  // Check if we have a video URL or generation job\n  if (prediction.videoUrl) {\n    return {\n      video_url: prediction.videoUrl,\n      filename: `360_video_${Date.now()}.mp4`,\n      status: 'url_ready',\n      message: 'Video generated with URL'\n    };\n  }\n  \n  // Check if video is still processing\n  if (prediction.status === 'PROCESSING' || prediction.state === 'PROCESSING') {\n    return {\n      status: 'processing',\n      message: 'Video is still being generated',\n      job_id: prediction.id || prediction.jobId,\n      estimate: '30-60 seconds'\n    };\n  }\n}\n\n// If no video data found, return error\nreturn {\n  status: 'error',\n  message: 'No video data found in response',\n  debug_response: response\n};"
+      },
+      "id": "d891b620-12e5-45db-92b9-762abcd40e4d",
+      "name": "Process Video Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "{{ $json.video_data ? 'video/mp4' : 'application/json' }}"
+              },
+              {
+                "name": "Content-Disposition",
+                "value": "{{ $json.video_data ? 'attachment; filename=\"' + $json.filename + '\"' : '' }}"
+              },
+              {
+                "name": "Content-Length",
+                "value": "{{ $json.size || '' }}"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "c0e14f0f-e7a3-4885-9b54-80dfb0a75b40",
+      "name": "Return Video File",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -432,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error handling - return comprehensive error message\nconst errorMsg = {\n  error: 'Video generation failed',\n  message: 'Unable to generate 360° video with Vertex AI Veo2. Please check your configuration and try again.',\n  timestamp: new Date().toISOString(),\n  details: 'Gemini processing or Vertex AI Veo2 generation failed',\n  troubleshooting: {\n    'Check environment variables': [\n      'GEMINI_API_KEY - Your Google Gemini API Key',\n      'VERTEX_AI_PROJECT_ID - Your Google Cloud Project ID',\n      'VERTEX_AI_ACCESS_TOKEN - Your Vertex AI Access Token'\n    ],\n    'Verify API access': [\n      'Ensure Gemini API is enabled in your Google Cloud project',\n      'Verify Vertex AI API is enabled',\n      'Check that Veo2 model is available in your region (us-central1)'\n    ],\n    'Check image format': [\n      'Image should be JPEG or PNG format',\n      'Image size should be under 10MB',\n      'Base64 encoding should be valid'\n    ]\n  },\n  next_steps: [\n    'Test the n8n webhook connection first',\n    'Verify your API keys are valid',\n    'Check the execution logs for detailed error messages',\n    'Try with a different image if the current one fails'\n  ]\n};\n\nconsole.log('Error details:', errorMsg);\nreturn errorMsg;"
+      },
+      "id": "8a895857-3c39-4433-866f-cfa998607a40",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "96833321-6545-4dab-a88f-e80184add189",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        656
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Upload Image": {
+      "main": [
+        [
+          {
+            "node": "Check if Real Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Real Request": {
+      "main": [
+        [
+          {
+            "node": "Gemini Generate Description",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Test Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Test Message": {
+      "main": [
+        [
+          {
+            "node": "Test Connection Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Generate Description": {
+      "main": [
+        [
+          {
+            "node": "Create Video Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Video Prompt": {
+      "main": [
+        [
+          {
+            "node": "Vertex AI Veo2 - Generate Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vertex AI Veo2 - Generate Video": {
+      "main": [
+        [
+          {
+            "node": "Video Generated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video Generated?": {
+      "main": [
+        [
+          {
+            "node": "Process Video Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 10s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10s": {
+      "main": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Video Data": {
+      "main": [
+        [
+          {
+            "node": "Return Video File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Return Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "86be887b-a592-4b3c-98b4-529ec6964587",
+  "meta": {
+    "instanceId": "fcffdf891854929de7e10d28bba758fb50a3ac6a7baf19da3cc3a993dac31039"
+  },
+  "id": "z3zoTrHuSJxe1ZOn",
+  "tags": []
+}
