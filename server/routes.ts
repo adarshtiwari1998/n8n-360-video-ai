@@ -236,6 +236,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Enhanced webhook test with detailed debugging
+  app.post('/api/debug-n8n', async (req, res) => {
+    try {
+      console.log('🔬 Running detailed n8n debugging...');
+      
+      const debugTests = [];
+      
+      // Test 1: Basic connectivity
+      try {
+        const basicTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+          method: 'GET'
+        });
+        debugTests.push({
+          test: 'Basic Connectivity',
+          status: basicTest.status,
+          success: basicTest.status !== 404
+        });
+      } catch (error) {
+        debugTests.push({
+          test: 'Basic Connectivity',
+          error: error instanceof Error ? error.message : 'Failed',
+          success: false
+        });
+      }
+
+      // Test 2: Webhook response with empty payload
+      try {
+        const emptyTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const emptyResponse = await emptyTest.text();
+        debugTests.push({
+          test: 'Empty Payload',
+          status: emptyTest.status,
+          response: emptyResponse.substring(0, 200),
+          success: emptyTest.status < 500
+        });
+      } catch (error) {
+        debugTests.push({
+          test: 'Empty Payload',
+          error: error instanceof Error ? error.message : 'Failed',
+          success: false
+        });
+      }
+
+      // Test 3: Webhook with test payload
+      try {
+        const testPayload = {
+          image_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+          product_name: 'Test Product',
+          session_id: 'debug_test_session'
+        };
+        
+        const payloadTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(testPayload)
+        });
+        const payloadResponse = await payloadTest.text();
+        debugTests.push({
+          test: 'With Test Payload',
+          status: payloadTest.status,
+          response: payloadResponse.substring(0, 200),
+          success: payloadTest.status < 500
+        });
+      } catch (error) {
+        debugTests.push({
+          test: 'With Test Payload',
+          error: error instanceof Error ? error.message : 'Failed',
+          success: false
+        });
+      }
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        tests: debugTests,
+        recommendations: [
+          "Check if n8n workflow is activated",
+          "Verify environment variables are set correctly",
+          "Ensure webhook response mode is set to 'Last node'",
+          "Check if Gemini API key has sufficient quota",
+          "Verify Vertex AI access token is valid"
+        ]
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        error: 'Debug test failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
