@@ -4,6 +4,126 @@ import { storage } from "./storage";
 import { shopifyProductSchema } from "@shared/schema";
 import crypto from "crypto";
 
+async function uploadToImageKit(imageData: string, fileName: string) {
+  const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+  const imagekitPublicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+  const imagekitUrlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+
+  if (!imagekitPrivateKey || !imagekitPublicKey || !imagekitUrlEndpoint) {
+    throw new Error('ImageKit configuration missing');
+  }
+
+  const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+
+  const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`
+    },
+    body: JSON.stringify({
+      file: base64Data,
+      fileName: fileName,
+      publicKey: imagekitPublicKey,
+    }),
+  });
+
+  if (!uploadResponse.ok) {
+    const errorText = await uploadResponse.text();
+    throw new Error(`ImageKit upload failed: ${errorText}`);
+  }
+
+  return await uploadResponse.json();
+}
+
+async function analyzeImageWithGemini(imageData: string, productName: string) {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
+  }
+
+  const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+
+  const geminiResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              inline_data: {
+                mime_type: 'image/jpeg',
+                data: base64Data
+              }
+            },
+            {
+              text: `Analyze this ${productName} image and create a detailed description for 360-degree video generation. Focus on: product type, key features, materials, colors, textures, and visual characteristics. Be specific and descriptive for AI video generation.`
+            }
+          ]
+        }]
+      })
+    }
+  );
+
+  if (!geminiResponse.ok) {
+    throw new Error(`Gemini API error: ${geminiResponse.status}`);
+  }
+
+  const geminiData = await geminiResponse.json();
+  
+  if (!geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+    throw new Error('Invalid Gemini response');
+  }
+
+  const description = geminiData.candidates[0].content.parts[0].text;
+  
+  const videoPrompt = `Create a professional 360-degree rotating product video showcasing this ${productName}. ${description}. The video should feature smooth rotation, professional lighting, clean background, and highlight all key features and details of the product. Style: Product photography, commercial quality, 8-10 seconds duration.`;
+
+  return { description, videoPrompt };
+}
+
+async function generateVideoWithGemini(prompt: string, productName: string) {
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error('GEMINI_API_KEY not configured');
+  }
+
+  const veoResponse = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: prompt }]
+        }],
+        generationConfig: {
+          response_modalities: ['VIDEO'],
+          media_resolution: 'MEDIUM'
+        }
+      })
+    }
+  );
+
+  if (!veoResponse.ok) {
+    const errorText = await veoResponse.text();
+    throw new Error(`Gemini Veo API error: ${veoResponse.status} - ${errorText}`);
+  }
+
+  const veoData = await veoResponse.json();
+  
+  if (!veoData.candidates?.[0]?.content?.parts?.[0]?.inline_data) {
+    throw new Error('No video data in response');
+  }
+
+  const videoData = veoData.candidates[0].content.parts[0].inline_data.data;
+  const mimeType = veoData.candidates[0].content.parts[0].inline_data.mime_type || 'video/mp4';
+  
+  return { videoData, mimeType };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   
   // 1. Shopify Product Search Endpoint
@@ -377,68 +497,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let imagekitUrl = imageData;
       try {
-        const imagekitResponse = await fetch(`${req.protocol}://${req.get('host')}/api/imagekit/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageData,
-            fileName: `${productName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`
-          }),
-        });
-        
-        if (imagekitResponse.ok) {
-          const imagekitData = await imagekitResponse.json();
-          imagekitUrl = imagekitData.url;
-          await storage.updateVideoGeneration(videoGen.id, { imagekitUrl });
-        }
+        const imagekitData = await uploadToImageKit(
+          imageData,
+          `${productName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`
+        );
+        imagekitUrl = imagekitData.url;
+        await storage.updateVideoGeneration(videoGen.id, { imagekitUrl });
+        console.log(`[${jobId}] ImageKit upload successful: ${imagekitUrl}`);
       } catch (err) {
-        console.warn(`[${jobId}] ImageKit upload failed, using original image`);
+        console.warn(`[${jobId}] ImageKit upload failed, using original image:`, err);
       }
 
       console.log(`[${jobId}] Step 2: Analyzing image with Gemini...`);
-      const analysisResponse = await fetch(`${req.protocol}://${req.get('host')}/api/gemini/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData, productName }),
-      });
-
-      if (!analysisResponse.ok) {
-        throw new Error('Gemini analysis failed');
-      }
-
-      const analysisData = await analysisResponse.json();
+      const analysisData = await analyzeImageWithGemini(imageData, productName);
+      
       await storage.updateVideoGeneration(videoGen.id, {
         geminiDescription: analysisData.description,
         videoPrompt: analysisData.videoPrompt,
         status: 'generating',
       });
+      console.log(`[${jobId}] Image analysis complete`);
 
       console.log(`[${jobId}] Step 3: Generating 360° video with Gemini Veo...`);
-      const videoResponse = await fetch(`${req.protocol}://${req.get('host')}/api/gemini/generate-video`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: analysisData.videoPrompt,
-          productName,
-        }),
-      });
+      const { videoData, mimeType } = await generateVideoWithGemini(
+        analysisData.videoPrompt,
+        productName
+      );
 
-      if (!videoResponse.ok) {
-        const errorData = await videoResponse.json();
-        throw new Error(errorData.details || 'Video generation failed');
-      }
-
-      const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
-      const videoBase64 = videoBuffer.toString('base64');
+      const videoBuffer = Buffer.from(videoData, 'base64');
 
       await storage.updateVideoGeneration(videoGen.id, {
-        videoData: videoBase64,
+        videoData: videoData,
         status: 'completed',
       });
 
       console.log(`[${jobId}] ✅ Video generation completed successfully`);
 
-      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Type', mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${productName.replace(/[^a-z0-9]/gi, '_')}_360_video.mp4"`);
       res.setHeader('Content-Length', videoBuffer.length);
       res.send(videoBuffer);
