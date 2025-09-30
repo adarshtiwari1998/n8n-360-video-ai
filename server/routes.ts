@@ -13,7 +13,26 @@ async function uploadToImageKit(imageData: string, fileName: string) {
     throw new Error('ImageKit configuration missing');
   }
 
-  const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+  // Check if imageData is a URL or base64
+  const isUrl = imageData.startsWith('http://') || imageData.startsWith('https://');
+  
+  let uploadBody: any;
+  if (isUrl) {
+    // Upload from URL
+    uploadBody = {
+      file: imageData,
+      fileName: fileName,
+      useUniqueFileName: false,
+    };
+  } else {
+    // Upload from base64
+    const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+    uploadBody = {
+      file: base64Data,
+      fileName: fileName,
+      useUniqueFileName: false,
+    };
+  }
 
   const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
     method: 'POST',
@@ -21,11 +40,7 @@ async function uploadToImageKit(imageData: string, fileName: string) {
       'Content-Type': 'application/json',
       'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`
     },
-    body: JSON.stringify({
-      file: base64Data,
-      fileName: fileName,
-      publicKey: imagekitPublicKey,
-    }),
+    body: JSON.stringify(uploadBody),
   });
 
   if (!uploadResponse.ok) {
@@ -36,13 +51,30 @@ async function uploadToImageKit(imageData: string, fileName: string) {
   return await uploadResponse.json();
 }
 
-async function analyzeImageWithGemini(imageData: string, productName: string) {
+async function analyzeImageWithGemini(imageDataOrUrl: string, productName: string) {
   const geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
     throw new Error('GEMINI_API_KEY not configured');
   }
 
-  const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+  let base64Data: string;
+  
+  // Check if it's a URL or base64
+  const isUrl = imageDataOrUrl.startsWith('http://') || imageDataOrUrl.startsWith('https://');
+  
+  if (isUrl) {
+    // Fetch the image from URL and convert to base64
+    console.log('Fetching image from URL:', imageDataOrUrl);
+    const imageResponse = await fetch(imageDataOrUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image from URL: ${imageResponse.status}`);
+    }
+    const imageBuffer = await imageResponse.arrayBuffer();
+    base64Data = Buffer.from(imageBuffer).toString('base64');
+  } else {
+    // It's already base64, just clean it up
+    base64Data = imageDataOrUrl.includes(',') ? imageDataOrUrl.split(',')[1] : imageDataOrUrl;
+  }
 
   const geminiResponse = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
@@ -68,13 +100,14 @@ async function analyzeImageWithGemini(imageData: string, productName: string) {
   );
 
   if (!geminiResponse.ok) {
-    throw new Error(`Gemini API error: ${geminiResponse.status}`);
+    const errorText = await geminiResponse.text();
+    throw new Error(`Gemini API error: ${geminiResponse.status} - ${errorText}`);
   }
 
   const geminiData = await geminiResponse.json();
   
   if (!geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
-    throw new Error('Invalid Gemini response');
+    throw new Error('Invalid Gemini response: ' + JSON.stringify(geminiData));
   }
 
   const description = geminiData.candidates[0].content.parts[0].text;
@@ -495,21 +528,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateVideoGeneration(videoGen.id, { status: 'analyzing' });
       console.log(`[${jobId}] Step 1: Uploading to ImageKit...`);
       
-      let imagekitUrl = imageData;
+      let imageToAnalyze = imageData;
       try {
         const imagekitData = await uploadToImageKit(
           imageData,
           `${productName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`
         );
-        imagekitUrl = imagekitData.url;
-        await storage.updateVideoGeneration(videoGen.id, { imagekitUrl });
-        console.log(`[${jobId}] ImageKit upload successful: ${imagekitUrl}`);
+        imageToAnalyze = imagekitData.url;
+        await storage.updateVideoGeneration(videoGen.id, { imagekitUrl: imagekitData.url });
+        console.log(`[${jobId}] ImageKit upload successful: ${imagekitData.url}`);
       } catch (err) {
         console.warn(`[${jobId}] ImageKit upload failed, using original image:`, err);
       }
 
       console.log(`[${jobId}] Step 2: Analyzing image with Gemini...`);
-      const analysisData = await analyzeImageWithGemini(imageData, productName);
+      const analysisData = await analyzeImageWithGemini(imageToAnalyze, productName);
       
       await storage.updateVideoGeneration(videoGen.id, {
         geminiDescription: analysisData.description,
