@@ -1,398 +1,399 @@
-import { useState } from 'react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
-import { Sparkles, Video, Wand2 } from 'lucide-react';
-import FileUploadZone from './FileUploadZone';
-import VideoProgressTracker from './VideoProgressTracker';
-import VideoResultCard from './VideoResultCard';
-
-type GenerationStatus = 'idle' | 'uploading' | 'webhook-triggered' | 'analyzing-image' | 'generating-prompt' | 'creating-video' | 'processing-video' | 'completed' | 'error';
-
-interface GenerationResult {
-  videoUrl: string;
-  filename: string;
-  fileSize: number;
-}
-
-interface WorkflowStep {
-  step: number;
-  name: string;
-  description: string;
-  completed: boolean;
-  timestamp?: string;
-}
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Upload, Search, Video, CheckCircle, XCircle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import type { ShopifyProduct } from "@shared/schema";
 
 export default function VideoGenerator() {
-  const [selectedFile, setSelectedFile] = useState<File | undefined>();
-  const [productName, setProductName] = useState('');
-  const [status, setStatus] = useState<GenerationStatus>('idle');
-  const [progress, setProgress] = useState(0);
-  const [result, setResult] = useState<GenerationResult | null>(null);
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
-  const [sessionId, setSessionId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<"upload" | "shopify">("upload");
+  const [selectedImage, setSelectedImage] = useState<string>("");
+  const [productName, setProductName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchType, setSearchType] = useState<"title" | "sku">("title");
+  const [selectedProduct, setSelectedProduct] = useState<ShopifyProduct | null>(null);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [videoUrl, setVideoUrl] = useState<string>("");
+  
   const { toast } = useToast();
 
-  const initializeWorkflowSteps = () => {
-    const steps: WorkflowStep[] = [
-      { step: 1, name: 'Webhook Triggered', description: 'Initiating n8n workflow...', completed: false },
-      { step: 2, name: 'GLM-4.5 Description', description: 'AI generating product description...', completed: false },
-      { step: 3, name: 'Prompt Generation', description: 'Creating 360° video prompt...', completed: false },
-      { step: 4, name: 'Gemini Veo3 Video', description: 'Generating 360° rotation video...', completed: false },
-      { step: 5, name: 'Video Processing', description: 'Processing and optimizing video...', completed: false },
-      { step: 6, name: 'Complete', description: 'Video ready for download!', completed: false }
-    ];
-    setWorkflowSteps(steps);
-    return steps;
-  };
-
-  const updateWorkflowStep = (stepNumber: number, completed: boolean = true) => {
-    setWorkflowSteps(prev => prev.map(step => 
-      step.step === stepNumber 
-        ? { ...step, completed, timestamp: completed ? new Date().toLocaleTimeString() : undefined }
-        : step
-    ));
-  };
-
-  const generateVideo = async () => {
-    if (!selectedFile) {
+  const shopifySearchMutation = useMutation({
+    mutationFn: async (params: { query: string; searchType: string }) => {
+      const res = await apiRequest('POST', '/api/shopify/search', params);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.products && data.products.length === 0) {
+        toast({
+          title: "No products found",
+          description: "Try a different search query",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
       toast({
-        title: 'No image selected',
-        description: 'Please upload a product image first.',
-        variant: 'destructive',
+        title: "Search failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const videoGenerationMutation = useMutation({
+    mutationFn: async (data: { imageData: string; productName: string }) => {
+      setGenerationProgress(10);
+      
+      const res = await fetch('/api/generate-360-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      setGenerationProgress(50);
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.details || errorData.error || 'Video generation failed');
+      }
+
+      setGenerationProgress(90);
+      const blob = await res.blob();
+      setGenerationProgress(100);
+      return blob;
+    },
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      setVideoUrl(url);
+      toast({
+        title: "Success!",
+        description: "360° video generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      setGenerationProgress(0);
+      toast({
+        title: "Generation failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file",
+        description: "Please upload an image file",
+        variant: "destructive",
       });
       return;
     }
 
-    try {
-      // Reset states and initialize workflow tracking
-      setResult(null);
-      const currentSessionId = `session_${Date.now()}`;
-      setSessionId(currentSessionId);
-      const steps = initializeWorkflowSteps();
-      
-      setStatus('uploading');
-      setProgress(5);
-
-      console.log(`🚀 [Frontend] Starting video generation for session: ${currentSessionId}`);
-
-      // Convert image to base64
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(selectedFile);
-      });
-
-      console.log(`📸 [Frontend] Image converted to base64, size: ${Math.round((base64.length * 0.75) / 1024)} KB`);
-
-      // Step 1: Webhook triggered
-      setStatus('webhook-triggered');
-      setProgress(15);
-      updateWorkflowStep(1);
-      console.log(`🔗 [Frontend] Step 1: Triggering n8n webhook...`);
-
-      // Call our backend API (which will proxy to n8n)
-      const response = await fetch('/api/generate-video', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_data: base64,
-          product_name: productName || 'Product',
-        }),
-      });
-
-      console.log(`✅ [Frontend] Backend response status: ${response.status}`);
-
-      if (!response.ok) {
-        throw new Error('Video generation failed');
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setSelectedImage(base64);
+      if (!productName) {
+        setProductName(file.name.replace(/\.[^/.]+$/, ""));
       }
+    };
+    reader.readAsDataURL(file);
+  };
 
-      // Simulate workflow steps with realistic timing
-      const simulateWorkflowProgress = () => {
-        const stepTimings = [
-          { step: 2, status: 'generating-description', progress: 30, delay: 2000 },
-          { step: 3, status: 'generating-prompt', progress: 45, delay: 3000 },
-          { step: 4, status: 'creating-video', progress: 65, delay: 5000 },
-          { step: 5, status: 'processing-video', progress: 85, delay: 3000 }
-        ];
-
-        stepTimings.forEach(({ step, status, progress, delay }) => {
-          setTimeout(() => {
-            setStatus(status as GenerationStatus);
-            setProgress(progress);
-            updateWorkflowStep(step);
-            console.log(`🔄 [Frontend] Step ${step}: ${status} (${progress}%)`);
-          }, delay);
-        });
-      };
-
-      simulateWorkflowProgress();
-
-      // Check response type and handle accordingly
-      console.log(`⏳ [Frontend] Waiting for video generation to complete...`);
-      const contentType = response.headers.get('content-type') || '';
-      
-      if (contentType.includes('video/') || contentType.includes('application/octet-stream') || contentType === '' || !contentType) {
-        // Video response - proceed normally
-        const videoBlob = await response.blob();
-        
-        // Step 6: Complete
-        setStatus('completed');
-        setProgress(100);
-        updateWorkflowStep(6);
-        console.log(`🎉 [Frontend] Video generation completed! Size: ${Math.round(videoBlob.size / 1024)} KB`);
-
-        // Create result
-        const videoUrl = URL.createObjectURL(videoBlob);
-        const filename = `360_${productName.replace(/\s+/g, '_')}_${Date.now()}.mp4`;
-        
-        setResult({
-          videoUrl,
-          filename,
-          fileSize: videoBlob.size,
-        });
-
-        toast({
-          title: '🎬 360° Video Generated!',
-          description: `Your ${productName || 'product'} video is ready for download.`,
-        });
-      } else if (contentType.includes('application/json')) {
-        // JSON response - likely status or error
-        const jsonData = await response.json();
-        console.log(`📄 [Frontend] Received JSON response:`, jsonData);
-        
-        if (jsonData.message === 'Workflow was started') {
-          // N8N workflow started but configured for immediate response - show detailed guidance
-          const errorMessage = jsonData.details || 'N8N workflow is configured for immediate response. Please configure your workflow to use "Last node" response mode to return the actual video.';
-          throw new Error(errorMessage);
-        } else if (jsonData.error) {
-          throw new Error(`N8N workflow error: ${jsonData.error}`);
-        } else {
-          throw new Error(`Expected video but received JSON: ${JSON.stringify(jsonData)}`);
-        }
-      } else {
-        // Unknown content type - treat as error
-        const textData = await response.text();
-        throw new Error(`Unexpected response type (${contentType}): ${textData.substring(0, 200)}`);
-      }
-
-    } catch (error) {
-      console.error(`❌ [Frontend] Video generation error:`, error);
-      setStatus('error');
-      
-      // Mark current step as failed
-      setWorkflowSteps(prev => prev.map(step => 
-        !step.completed ? { ...step, completed: false, timestamp: 'Failed' } : step
-      ));
-      
-      toast({
-        title: 'Generation Failed',
-        description: 'There was an error creating your video. Check the console for detailed logs.',
-        variant: 'destructive',
-      });
+  const handleProductSelect = (product: ShopifyProduct) => {
+    setSelectedProduct(product);
+    setProductName(product.title);
+    if (product.images && product.images.length > 0) {
+      setSelectedImage(product.images[0].url);
     }
   };
 
-  const downloadVideo = () => {
-    if (result) {
-      const link = document.createElement('a');
-      link.href = result.videoUrl;
-      link.download = result.filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
+  const handleGenerateVideo = () => {
+    if (!selectedImage) {
       toast({
-        title: 'Download Started',
-        description: 'Your video is being downloaded.',
+        title: "No image selected",
+        description: "Please upload an image or select a product",
+        variant: "destructive",
       });
+      return;
     }
-  };
 
-  const startNewVideo = () => {
-    setSelectedFile(undefined);
-    setProductName('');
-    setStatus('idle');
-    setProgress(0);
-    setResult(null);
-    setWorkflowSteps([]);
-    setSessionId('');
-    console.log(`🔄 [Frontend] Starting new video generation session`);
+    if (!productName) {
+      toast({
+        title: "Product name required",
+        description: "Please enter a product name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setGenerationProgress(0);
+    setVideoUrl("");
+    videoGenerationMutation.mutate({
+      imageData: selectedImage,
+      productName,
+    });
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="text-center space-y-4">
-        <div className="flex items-center justify-center gap-2">
-          <Video className="w-8 h-8 text-primary" />
-          <h1 className="text-3xl font-bold">360° Product Video Generator</h1>
-        </div>
-        <p className="text-muted-foreground max-w-2xl mx-auto">
-          Transform your product photos into professional 360-degree rotation videos using AI. 
-          Perfect for e-commerce, marketing, and product showcases.
+    <div className="container mx-auto py-8 px-4 max-w-7xl" data-testid="container-video-generator">
+      <div className="mb-8 text-center">
+        <h1 className="text-4xl font-bold mb-2" data-testid="heading-main">360° Product Video Generator</h1>
+        <p className="text-muted-foreground" data-testid="text-description">
+          Create stunning 360° product videos using AI - Upload an image or search from Shopify
         </p>
       </div>
 
-      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Input Section */}
-        <div className="space-y-6">
-          <Card className="p-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <h2 className="text-xl font-semibold">Upload & Configure</h2>
-              </div>
-              
-              <FileUploadZone
-                onFileSelect={setSelectedFile}
-                selectedFile={selectedFile}
-              />
+        <div>
+          <Card data-testid="card-input">
+            <CardHeader>
+              <CardTitle data-testid="heading-source">Select Product Source</CardTitle>
+              <CardDescription data-testid="text-source-description">
+                Choose to upload an image or search from your Shopify store
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upload" | "shopify")} data-testid="tabs-source">
+                <TabsList className="grid w-full grid-cols-2" data-testid="tabs-list">
+                  <TabsTrigger value="upload" data-testid="tab-upload">
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Image
+                  </TabsTrigger>
+                  <TabsTrigger value="shopify" data-testid="tab-shopify">
+                    <Search className="w-4 h-4 mr-2" />
+                    Search Shopify
+                  </TabsTrigger>
+                </TabsList>
 
-              <div className="space-y-2">
-                <Label htmlFor="productName">Product Name (Optional)</Label>
-                <Input
-                  id="productName"
-                  placeholder="e.g., Wireless Headphones, Coffee Mug..."
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  data-testid="input-product-name"
-                />
-              </div>
+                <TabsContent value="upload" className="space-y-4" data-testid="content-upload">
+                  <div>
+                    <Label htmlFor="image-upload" data-testid="label-image">Product Image</Label>
+                    <Input
+                      id="image-upload"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="cursor-pointer"
+                      data-testid="input-image-file"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="product-name" data-testid="label-product-name">Product Name</Label>
+                    <Input
+                      id="product-name"
+                      value={productName}
+                      onChange={(e) => setProductName(e.target.value)}
+                      placeholder="Enter product name"
+                      data-testid="input-product-name"
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="shopify" className="space-y-4" data-testid="content-shopify">
+                  <div className="flex gap-2">
+                    <Select value={searchType} onValueChange={(v) => setSearchType(v as "title" | "sku")}>
+                      <SelectTrigger className="w-[140px]" data-testid="select-search-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="title" data-testid="option-search-title">Title</SelectItem>
+                        <SelectItem value="sku" data-testid="option-search-sku">SKU</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder={`Search by ${searchType}...`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && searchQuery) {
+                          shopifySearchMutation.mutate({ query: searchQuery, searchType });
+                        }
+                      }}
+                      data-testid="input-search-query"
+                    />
+                    <Button
+                      onClick={() => {
+                        if (searchQuery) {
+                          shopifySearchMutation.mutate({ query: searchQuery, searchType });
+                        }
+                      }}
+                      disabled={!searchQuery || shopifySearchMutation.isPending}
+                      data-testid="button-search"
+                    >
+                      {shopifySearchMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Search className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  {shopifySearchMutation.data?.products && shopifySearchMutation.data.products.length > 0 && (
+                    <div className="border rounded-lg p-4 max-h-96 overflow-y-auto space-y-2" data-testid="list-products">
+                      {shopifySearchMutation.data.products.map((product: ShopifyProduct) => (
+                        <div
+                          key={product.id}
+                          onClick={() => handleProductSelect(product)}
+                          className={`p-3 border rounded cursor-pointer hover:bg-accent transition-colors ${
+                            selectedProduct?.id === product.id ? 'bg-accent border-primary' : ''
+                          }`}
+                          data-testid={`card-product-${product.id}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {product.images && product.images[0] && (
+                              <img
+                                src={product.images[0].url}
+                                alt={product.title}
+                                className="w-16 h-16 object-cover rounded"
+                                data-testid={`img-product-${product.id}`}
+                              />
+                            )}
+                            <div className="flex-1">
+                              <h3 className="font-semibold" data-testid={`text-product-title-${product.id}`}>{product.title}</h3>
+                              {product.variants && product.variants[0]?.sku && (
+                                <p className="text-sm text-muted-foreground" data-testid={`text-product-sku-${product.id}`}>
+                                  SKU: {product.variants[0].sku}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
+
+              {selectedImage && (
+                <div className="mt-4" data-testid="preview-image">
+                  <Label data-testid="label-preview">Selected Image Preview</Label>
+                  <div className="mt-2 border rounded-lg p-2">
+                    <img
+                      src={selectedImage}
+                      alt="Selected product"
+                      className="w-full h-64 object-contain"
+                      data-testid="img-preview"
+                    />
+                  </div>
+                </div>
+              )}
 
               <Button
-                onClick={generateVideo}
-                disabled={!selectedFile || status === 'creating-video' || status === 'processing-video'}
-                className="w-full"
+                onClick={handleGenerateVideo}
+                disabled={!selectedImage || !productName || videoGenerationMutation.isPending}
+                className="w-full mt-4"
                 size="lg"
-                data-testid="button-generate-video"
+                data-testid="button-generate"
               >
-                <Wand2 className="w-4 h-4 mr-2" />
-                {status === 'creating-video' || status === 'processing-video' 
-                  ? 'Generating Video...' 
-                  : 'Generate 360° Video'
-                }
+                {videoGenerationMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating Video...
+                  </>
+                ) : (
+                  <>
+                    <Video className="w-4 h-4 mr-2" />
+                    Generate 360° Video
+                  </>
+                )}
               </Button>
-
-              <Button
-                onClick={async () => {
-                  try {
-                    const response = await fetch('/api/test-webhook', { method: 'POST' });
-                    const data = await response.json();
-                    console.log('🔍 n8n Webhook Test Results:', data);
-                    toast({
-                      title: 'Webhook Test Results',
-                      description: `Status: ${data.status} - Check console for details`,
-                      variant: data.success ? 'default' : 'destructive',
-                    });
-                  } catch (error) {
-                    console.error('Test failed:', error);
-                    toast({
-                      title: 'Test Failed',
-                      description: 'Check console for error details',
-                      variant: 'destructive',
-                    });
-                  }
-                }}
-                variant="outline"
-                className="w-full"
-                data-testid="button-test-webhook"
-              >
-                🔍 Test n8n Webhook Connection
-              </Button>
-            </div>
+            </CardContent>
           </Card>
         </div>
 
-        {/* Progress & Result Section */}
-        <div className="space-y-6">
-          <VideoProgressTracker 
-            status={status}
-            progress={progress}
-            message={status === 'creating-video' ? 'AI is creating your 360° rotation video...' : undefined}
-          />
-
-          {/* Detailed Workflow Steps */}
-          {workflowSteps.length > 0 && (
-            <Card className="p-6">
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  n8n Workflow Progress
-                </h3>
-                <div className="space-y-3">
-                  {workflowSteps.map((step) => (
-                    <div key={step.step} className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                      step.completed ? 'bg-green-50 dark:bg-green-900/20' : 
-                      status !== 'idle' && !step.completed ? 'bg-blue-50 dark:bg-blue-900/20' : 
-                      'bg-muted/30'
-                    }`}>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${
-                        step.completed ? 'bg-green-500 text-white' :
-                        status !== 'idle' && !step.completed ? 'bg-blue-500 text-white' :
-                        'bg-muted text-muted-foreground'
-                      }`}>
-                        {step.completed ? '✓' : step.step}
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium">{step.name}</div>
-                        <div className="text-sm text-muted-foreground">{step.description}</div>
-                      </div>
-                      {step.timestamp && (
-                        <div className="text-xs text-muted-foreground">
-                          {step.timestamp}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {sessionId && (
-                  <div className="text-xs text-muted-foreground border-t pt-2">
-                    Session ID: <code className="bg-muted px-1 rounded">{sessionId}</code>
+        <div>
+          <Card data-testid="card-output">
+            <CardHeader>
+              <CardTitle data-testid="heading-result">Video Generation Result</CardTitle>
+              <CardDescription data-testid="text-result-description">
+                Your generated 360° product video will appear here
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {videoGenerationMutation.isPending && (
+                <div className="space-y-2" data-testid="status-generating">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium" data-testid="text-progress">Generating video...</span>
+                    <span className="text-sm text-muted-foreground" data-testid="text-progress-percent">{generationProgress}%</span>
                   </div>
-                )}
-              </div>
-            </Card>
-          )}
+                  <Progress value={generationProgress} className="w-full" data-testid="progress-bar" />
+                  <Alert data-testid="alert-progress">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <AlertDescription data-testid="text-progress-message">
+                      {generationProgress < 20 && "Uploading image to ImageKit..."}
+                      {generationProgress >= 20 && generationProgress < 50 && "Analyzing image with Gemini AI..."}
+                      {generationProgress >= 50 && generationProgress < 90 && "Generating 360° video with Gemini Veo..."}
+                      {generationProgress >= 90 && "Finalizing video..."}
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              )}
 
-          {result && (
-            <VideoResultCard
-              videoUrl={result.videoUrl}
-              filename={result.filename}
-              fileSize={result.fileSize}
-              onDownload={downloadVideo}
-              onNewVideo={startNewVideo}
-            />
-          )}
+              {videoUrl && (
+                <div className="space-y-4" data-testid="result-video">
+                  <Alert className="border-green-500 bg-green-50 dark:bg-green-950" data-testid="alert-success">
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+                    <AlertDescription className="text-green-800 dark:text-green-200" data-testid="text-success">
+                      Video generated successfully!
+                    </AlertDescription>
+                  </Alert>
+                  <div className="border rounded-lg overflow-hidden" data-testid="container-video-player">
+                    <video
+                      src={videoUrl}
+                      controls
+                      className="w-full"
+                      data-testid="video-player"
+                    >
+                      Your browser does not support video playback.
+                    </video>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = videoUrl;
+                      a.download = `${productName.replace(/[^a-z0-9]/gi, '_')}_360_video.mp4`;
+                      a.click();
+                    }}
+                    className="w-full"
+                    data-testid="button-download"
+                  >
+                    Download Video
+                  </Button>
+                </div>
+              )}
+
+              {videoGenerationMutation.isError && (
+                <Alert variant="destructive" data-testid="alert-error">
+                  <XCircle className="w-4 h-4" />
+                  <AlertDescription data-testid="text-error">
+                    {videoGenerationMutation.error?.message || 'Video generation failed'}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {!videoGenerationMutation.isPending && !videoUrl && !videoGenerationMutation.isError && (
+                <div className="text-center py-12 text-muted-foreground" data-testid="placeholder-empty">
+                  <Video className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p data-testid="text-empty">Select an image and generate a video to see results</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      {/* Features Info */}
-      <Card className="p-6 bg-muted/30">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
-          <div>
-            <h3 className="font-semibold mb-2">🤖 AI-Powered</h3>
-            <p className="text-sm text-muted-foreground">
-              Advanced AI generates professional video prompts automatically
-            </p>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-2">⚡ Fast Generation</h3>
-            <p className="text-sm text-muted-foreground">
-              High-quality 360° videos ready in under 60 seconds
-            </p>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-2">📱 Ready to Use</h3>
-            <p className="text-sm text-muted-foreground">
-              Perfect for websites, social media, and marketing campaigns
-            </p>
-          </div>
-        </div>
-      </Card>
     </div>
   );
 }
