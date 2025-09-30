@@ -6,11 +6,9 @@ import crypto from "crypto";
 
 async function uploadToImageKit(imageData: string, fileName: string) {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
-  const imagekitPublicKey = process.env.IMAGEKIT_PUBLIC_KEY;
-  const imagekitUrlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
 
-  if (!imagekitPrivateKey || !imagekitPublicKey || !imagekitUrlEndpoint) {
-    throw new Error('ImageKit configuration missing');
+  if (!imagekitPrivateKey) {
+    throw new Error('ImageKit IMAGEKIT_PRIVATE_KEY not configured');
   }
 
   // Check if imageData is a URL or base64
@@ -18,11 +16,11 @@ async function uploadToImageKit(imageData: string, fileName: string) {
   
   let uploadBody: any;
   if (isUrl) {
-    // Upload from URL
+    // Upload from URL - server-side upload doesn't need publicKey
     uploadBody = {
       file: imageData,
       fileName: fileName,
-      useUniqueFileName: false,
+      useUniqueFileName: true,
     };
   } else {
     // Upload from base64
@@ -30,7 +28,7 @@ async function uploadToImageKit(imageData: string, fileName: string) {
     uploadBody = {
       file: base64Data,
       fileName: fileName,
-      useUniqueFileName: false,
+      useUniqueFileName: true,
     };
   }
 
@@ -123,18 +121,20 @@ async function generateVideoWithGemini(prompt: string, productName: string) {
     throw new Error('GEMINI_API_KEY not configured');
   }
 
+  console.log('Generating video with Veo 3...');
+  
+  // Use the Veo 3 model for video generation
   const veoResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:generateVideos?key=${geminiApiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-          response_modalities: ['VIDEO'],
-          media_resolution: 'MEDIUM'
+        prompt: prompt,
+        config: {
+          resolution: '720p',
+          duration: '8s',
+          aspectRatio: '16:9'
         }
       })
     }
@@ -146,15 +146,62 @@ async function generateVideoWithGemini(prompt: string, productName: string) {
   }
 
   const veoData = await veoResponse.json();
+  console.log('Veo response:', JSON.stringify(veoData, null, 2));
   
-  if (!veoData.candidates?.[0]?.content?.parts?.[0]?.inline_data) {
-    throw new Error('No video data in response');
+  // The response includes an operation that we need to poll for completion
+  if (veoData.name) {
+    // This is an operation - we need to poll for completion
+    const operationName = veoData.name;
+    console.log('Video generation started, operation:', operationName);
+    
+    // Poll for completion (max 2 minutes)
+    const maxAttempts = 24; // 24 * 5 seconds = 2 minutes
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      
+      const statusResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${geminiApiKey}`,
+        { method: 'GET', headers: { 'Content-Type': 'application/json' } }
+      );
+      
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to check video status: ${statusResponse.status}`);
+      }
+      
+      const statusData = await statusResponse.json();
+      
+      if (statusData.done) {
+        // Video is ready
+        if (statusData.error) {
+          throw new Error(`Video generation failed: ${JSON.stringify(statusData.error)}`);
+        }
+        
+        if (statusData.response?.generatedVideos?.[0]?.video) {
+          const videoData = statusData.response.generatedVideos[0].video;
+          return { 
+            videoData: videoData, 
+            mimeType: 'video/mp4' 
+          };
+        } else {
+          throw new Error('No video data in completed response');
+        }
+      }
+      
+      console.log(`Video generation in progress... (attempt ${i + 1}/${maxAttempts})`);
+    }
+    
+    throw new Error('Video generation timed out after 2 minutes');
   }
-
-  const videoData = veoData.candidates[0].content.parts[0].inline_data.data;
-  const mimeType = veoData.candidates[0].content.parts[0].inline_data.mime_type || 'video/mp4';
   
-  return { videoData, mimeType };
+  // Check for inline video data (immediate response)
+  if (veoData.generatedVideos?.[0]?.video) {
+    return { 
+      videoData: veoData.generatedVideos[0].video, 
+      mimeType: 'video/mp4' 
+    };
+  }
+  
+  throw new Error('Unexpected Veo API response format: ' + JSON.stringify(veoData));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
