@@ -59,3 +59,56 @@ Preferred communication style: Simple, everyday language.
 - **Server State**: TanStack Query for API data caching and synchronization
 - **Session State**: Express sessions with PostgreSQL storage
 - **File State**: Memory-based file handling with cleanup
+
+## Replit Setup & Troubleshooting
+
+### Initial Setup from GitHub Import
+
+If you import this project from GitHub to Replit and encounter the `tsx: not found` error, follow these steps:
+
+#### Problem
+When `NODE_ENV=production` is set in the environment, npm will NOT install devDependencies (which includes tsx, vite, typescript, esbuild, and other build tools). This causes the application to fail with errors like:
+- `sh: 1: tsx: not found`
+- `Cannot find module 'vite'`
+- Missing TypeScript compiler
+
+#### Solution
+1. **Unset NODE_ENV and reinstall dependencies:**
+   ```bash
+   unset NODE_ENV && npm install
+   ```
+
+2. **Verify tsx is installed:**
+   ```bash
+   ls node_modules/.bin/tsx
+   ```
+   You should see a symlink to the tsx executable.
+
+3. **Update package.json dev script (if needed):**
+   The dev script should use `npx tsx` to ensure tsx is found:
+   ```json
+   "dev": "NODE_ENV=development PORT=5000 npx tsx server/index.ts"
+   ```
+
+4. **Restart the workflow:**
+   The "Start application" workflow should now start successfully on port 5000.
+
+#### Why This Happens
+- Replit may set `NODE_ENV=production` by default in some cases
+- When `NODE_ENV=production`, npm skips installing devDependencies as an optimization
+- This project requires devDependencies (tsx, vite, etc.) even in development mode
+- The solution is to explicitly unset NODE_ENV before running npm install
+
+#### Verification Checklist
+After setup, verify:
+- [ ] Server runs on port 5000 without errors
+- [ ] Vite dev server connects successfully
+- [ ] Frontend loads in the browser
+- [ ] All devDependencies are present in node_modules
+- [ ] tsx, vite, typescript, esbuild binaries exist in node_modules/.bin/
+
+### Development Workflow
+- **Port Configuration**: Frontend and backend both run on port 5000 (Vite dev server in middleware mode)
+- **Hot Reload**: Vite provides instant HMR for frontend changes
+- **TypeScript**: tsx provides instant TypeScript execution for backend
+- **Environment Variables**: Store API keys in Replit Secrets (GEMINI_API_KEY, SHOPIFY credentials, etc.)
