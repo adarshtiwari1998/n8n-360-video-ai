@@ -1,332 +1,479 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { shopifyProductSchema } from "@shared/schema";
+import crypto from "crypto";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Enhanced API route to generate 360° videos with detailed n8n workflow tracking
-  app.post('/api/generate-video', async (req, res) => {
-    const startTime = Date.now();
-    const sessionId = `session_${startTime}`;
-    
+  
+  // 1. Shopify Product Search Endpoint
+  app.post('/api/shopify/search', async (req: Request, res: Response) => {
     try {
-      const { image_data, product_name } = req.body;
+      const { query, searchType = 'title' } = req.body;
       
-      if (!image_data) {
-        return res.status(400).json({ error: 'Image data is required' });
+      if (!query) {
+        return res.status(400).json({ error: 'Search query is required' });
       }
 
-      // Validate image size (8MB limit for base64 data)
-      const imageSizeKB = Math.round((image_data.length * 0.75) / 1024);
-      if (imageSizeKB > 8192) { // 8MB limit
-        return res.status(413).json({ 
-          error: 'Image too large', 
-          details: `Image size ${imageSizeKB} KB exceeds 8MB limit`,
-          max_size: '8MB'
+      const shopifyStoreUrl = process.env.SHOPIFY_STORE_URL;
+      const shopifyAccessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+
+      if (!shopifyStoreUrl || !shopifyAccessToken) {
+        return res.status(500).json({ 
+          error: 'Shopify configuration missing',
+          details: 'SHOPIFY_STORE_URL and SHOPIFY_ACCESS_TOKEN must be set'
         });
       }
 
-      // Step 1: Log workflow initiation
-      console.log(`\n🚀 [${sessionId}] === 360° VIDEO GENERATION STARTED ===`);
-      console.log(`📸 [${sessionId}] Product: ${product_name || 'Unnamed Product'}`);
-      console.log(`📊 [${sessionId}] Image size: ${Math.round((image_data.length * 0.75) / 1024)} KB`);
-      // Extract base64 data without the data URL prefix for n8n processing
-      const base64Data = image_data.includes(',') ? image_data.split(',')[1] : image_data;
+      let graphqlQuery = '';
       
-      console.log(`🔗 [${sessionId}] Step 1: Triggering n8n webhook...`);
-      console.log(`📄 [${sessionId}] Payload preview: { image_base64: "${base64Data.substring(0, 50)}...", product_name: "${product_name || 'Product'}", session_id: "${sessionId}" }`);
-
-      // Step 2: Call n8n webhook with correct payload format and timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
-      
-      try {
-        // Add detailed logging for debugging
-        console.log(`🔍 [${sessionId}] Testing n8n endpoint availability...`);
-        
-        const n8nResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            image_base64: base64Data,
-            image_url: image_data, // Keep for backward compatibility
-            product_name: product_name || 'Product',
-            session_id: sessionId
-          }),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-
-        console.log(`✅ [${sessionId}] Step 2: Webhook response status: ${n8nResponse.status}`);
-
-      if (!n8nResponse.ok) {
-        console.log(`❌ [${sessionId}] n8n webhook failed with status: ${n8nResponse.status}`);
-        throw new Error(`n8n request failed: ${n8nResponse.status}`);
-      }
-
-      // Step 3: Process response
-      const contentType = n8nResponse.headers.get('content-type');
-      console.log(`📋 [${sessionId}] Step 3: Response content-type: ${contentType}`);
-      
-      if (contentType?.includes('video/') || contentType?.includes('application/octet-stream') || !contentType) {
-        // Video content received - workflow completed successfully
-        console.log(`🎬 [${sessionId}] Step 4: Video content received, streaming to client...`);
-        
-        // Forward upstream content-type and disposition if available, otherwise default
-        const upstreamContentType = n8nResponse.headers.get('content-type') || 'video/mp4';
-        const upstreamDisposition = n8nResponse.headers.get('content-disposition') || `attachment; filename="360_video_${Date.now()}.mp4"`;
-        
-        res.setHeader('Content-Type', upstreamContentType);
-        res.setHeader('Content-Disposition', upstreamDisposition);
-        
-        let totalBytes = 0;
-        const reader = n8nResponse.body?.getReader();
-        
-        if (reader) {
-          const pump = async () => {
-            try {
-              while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                totalBytes += value.length;
-                res.write(value);
+      if (searchType === 'title') {
+        graphqlQuery = `
+          query searchProducts($query: String!) {
+            products(first: 20, query: $query) {
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  productType
+                  vendor
+                  tags
+                  images(first: 5) {
+                    edges {
+                      node {
+                        id
+                        url
+                        altText
+                      }
+                    }
+                  }
+                  variants(first: 10) {
+                    edges {
+                      node {
+                        id
+                        title
+                        sku
+                        price
+                      }
+                    }
+                  }
+                }
               }
-              
-              const duration = Date.now() - startTime;
-              console.log(`✅ [${sessionId}] === VIDEO GENERATION COMPLETED ===`);
-              console.log(`📊 [${sessionId}] Final video size: ${Math.round(totalBytes / 1024)} KB`);
-              console.log(`⏱️  [${sessionId}] Total time: ${duration}ms`);
-              console.log(`🎉 [${sessionId}] All workflow steps completed successfully!\n`);
-              
-              res.end();
-            } catch (error) {
-              console.log(`❌ [${sessionId}] Error streaming video: ${error}`);
-              res.status(500).end();
             }
-          };
-          pump();
-        } else {
-          console.log(`❌ [${sessionId}] No video data received from n8n`);
-          res.status(500).json({ error: 'No video data received' });
-        }
-      } else {
-        // JSON or text response (might be status or error)
-        let responseData;
-        try {
-          responseData = await n8nResponse.json();
-          console.log(`📄 [${sessionId}] Step 4: JSON response received:`, responseData);
-        } catch (parseError) {
-          // Not valid JSON, try as text
-          const textData = await n8nResponse.text();
-          console.log(`📄 [${sessionId}] Step 4: Text response received:`, textData.substring(0, 200));
-          responseData = { error: 'Invalid response format', details: textData };
-        }
-        
-        const jsonData = responseData;
-        
-        if (jsonData.message === 'Workflow was started') {
-          console.log(`⚠️  [${sessionId}] N8N CONFIGURATION ISSUE: Workflow returned immediate response instead of waiting for completion.`);
-          console.log(`💡 [${sessionId}] SOLUTION: Configure your N8N workflow to use "Last node" response mode instead of "Respond immediately".`);
-          console.log(`🔧 [${sessionId}] In N8N: Webhook node > Settings > Response Mode > "Last node"`);
-        } else if (jsonData.error) {
-          console.log(`❌ [${sessionId}] n8n workflow error:`, jsonData);
-        } else {
-          console.log(`ℹ️  [${sessionId}] n8n workflow status:`, jsonData);
-        }
-        
-        // Add helpful error context to the response
-        if (jsonData.message === 'Workflow was started') {
-          res.json({
-            ...jsonData,
-            error: 'N8N workflow configuration issue',
-            details: 'The workflow is configured for immediate response instead of waiting for completion. Please configure your N8N workflow to use "Last node" response mode.',
-            troubleshooting: {
-              issue: 'Webhook response mode is set to "Respond immediately"',
-              solution: 'Change to "Last node" in webhook settings',
-              expectedBehavior: 'Workflow should process the image and return the video file'
+          }
+        `;
+      } else if (searchType === 'sku') {
+        graphqlQuery = `
+          query searchBySKU($query: String!) {
+            productVariants(first: 20, query: $query) {
+              edges {
+                node {
+                  id
+                  title
+                  sku
+                  price
+                  product {
+                    id
+                    title
+                    handle
+                    productType
+                    vendor
+                    images(first: 5) {
+                      edges {
+                        node {
+                          id
+                          url
+                          altText
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
-          });
-        } else {
-          res.json(jsonData);
-        }
-      }
-      
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-          console.log(`⏰ [${sessionId}] N8N request timed out after 2 minutes`);
-          res.status(504).json({ 
-            error: 'Timeout', 
-            details: 'N8N workflow took too long to respond. The workflow may be processing a complex video generation.',
-            session_id: sessionId
-          });
-          return;
-        } else {
-          throw fetchError as Error; // Re-throw other fetch errors to be handled by outer catch
-        }
+          }
+        `;
       }
 
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      console.log(`❌ [${sessionId}] === VIDEO GENERATION FAILED ===`);
-      console.log(`💥 [${sessionId}] Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.log(`⏱️  [${sessionId}] Failed after: ${duration}ms\n`);
-      
-      res.status(500).json({ 
-        error: 'Video generation failed',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        session_id: sessionId
-      });
-    }
-  });
-
-  // New endpoint to check n8n workflow status
-  app.get('/api/workflow-status/:sessionId', async (req, res) => {
-    const { sessionId } = req.params;
-    
-    try {
-      // This endpoint can be used to check the status of long-running workflows
-      console.log(`🔍 [${sessionId}] Checking workflow status...`);
-      
-      res.json({
-        session_id: sessionId,
-        status: 'checking',
-        message: 'Workflow status check - implement with n8n execution API if needed'
-      });
-    } catch (error) {
-      res.status(500).json({ error: 'Status check failed' });
-    }
-  });
-
-  // Diagnostic endpoint to test n8n webhook connectivity
-  app.post('/api/test-webhook', async (req, res) => {
-    try {
-      console.log('🔍 Testing n8n webhook connectivity...');
-      
-      // Test with minimal payload
-      const testResponse = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
+      const shopifyResponse = await fetch(`https://${shopifyStoreUrl}/admin/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': shopifyAccessToken,
         },
         body: JSON.stringify({
-          test: true,
-          product_name: 'Test Product',
-          session_id: 'test_session'
-        })
+          query: graphqlQuery,
+          variables: { query }
+        }),
       });
 
-      const responseText = await testResponse.text();
+      if (!shopifyResponse.ok) {
+        throw new Error(`Shopify API error: ${shopifyResponse.status}`);
+      }
+
+      const data = await shopifyResponse.json();
       
-      res.json({
-        status: testResponse.status,
-        statusText: testResponse.statusText,
-        headers: Object.fromEntries(testResponse.headers.entries()),
-        body: responseText.substring(0, 500), // First 500 chars
-        success: testResponse.ok
-      });
+      let products = [];
+      if (searchType === 'title' && data.data?.products?.edges) {
+        products = data.data.products.edges.map((edge: any) => ({
+          id: edge.node.id,
+          title: edge.node.title,
+          handle: edge.node.handle,
+          productType: edge.node.productType,
+          vendor: edge.node.vendor,
+          tags: edge.node.tags,
+          images: edge.node.images?.edges?.map((img: any) => ({
+            id: img.node.id,
+            url: img.node.url,
+            altText: img.node.altText,
+          })) || [],
+          variants: edge.node.variants?.edges?.map((v: any) => ({
+            id: v.node.id,
+            title: v.node.title,
+            sku: v.node.sku,
+            price: v.node.price,
+          })) || [],
+        }));
+      } else if (searchType === 'sku' && data.data?.productVariants?.edges) {
+        products = data.data.productVariants.edges.map((edge: any) => ({
+          id: edge.node.product.id,
+          title: edge.node.product.title,
+          handle: edge.node.product.handle,
+          productType: edge.node.product.productType,
+          vendor: edge.node.product.vendor,
+          images: edge.node.product.images?.edges?.map((img: any) => ({
+            id: img.node.id,
+            url: img.node.url,
+            altText: img.node.altText,
+          })) || [],
+          variants: [{
+            id: edge.node.id,
+            title: edge.node.title,
+            sku: edge.node.sku,
+            price: edge.node.price,
+          }],
+        }));
+      }
+
+      res.json({ products });
     } catch (error) {
+      console.error('Shopify search error:', error);
       res.status(500).json({ 
-        error: 'Test failed',
+        error: 'Failed to search Shopify products',
         details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });
 
-  // Enhanced webhook test with detailed debugging
-  app.post('/api/debug-n8n', async (req, res) => {
+  // 2. ImageKit Upload Endpoint
+  app.post('/api/imagekit/upload', async (req: Request, res: Response) => {
     try {
-      console.log('🔬 Running detailed n8n debugging...');
+      const { imageData, fileName = 'product-image.jpg' } = req.body;
       
-      const debugTests = [];
+      if (!imageData) {
+        return res.status(400).json({ error: 'Image data is required' });
+      }
+
+      const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
+      const imagekitPublicKey = process.env.IMAGEKIT_PUBLIC_KEY;
+      const imagekitUrlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
+
+      if (!imagekitPrivateKey || !imagekitPublicKey || !imagekitUrlEndpoint) {
+        return res.status(500).json({ 
+          error: 'ImageKit configuration missing',
+          details: 'IMAGEKIT_PRIVATE_KEY, IMAGEKIT_PUBLIC_KEY, and IMAGEKIT_URL_ENDPOINT must be set'
+        });
+      }
+
+      const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+
+      const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`
+        },
+        body: JSON.stringify({
+          file: base64Data,
+          fileName: fileName,
+          publicKey: imagekitPublicKey,
+        }),
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        throw new Error(`ImageKit upload failed: ${errorText}`);
+      }
+
+      const uploadData = await uploadResponse.json();
       
-      // Test 1: Basic connectivity
-      try {
-        const basicTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
-          method: 'GET'
-        });
-        debugTests.push({
-          test: 'Basic Connectivity',
-          status: basicTest.status,
-          success: basicTest.status !== 404
-        });
-      } catch (error) {
-        debugTests.push({
-          test: 'Basic Connectivity',
-          error: error instanceof Error ? error.message : 'Failed',
-          success: false
-        });
-      }
-
-      // Test 2: Webhook response with empty payload
-      try {
-        const emptyTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        });
-        const emptyResponse = await emptyTest.text();
-        debugTests.push({
-          test: 'Empty Payload',
-          status: emptyTest.status,
-          response: emptyResponse.substring(0, 200),
-          success: emptyTest.status < 500
-        });
-      } catch (error) {
-        debugTests.push({
-          test: 'Empty Payload',
-          error: error instanceof Error ? error.message : 'Failed',
-          success: false
-        });
-      }
-
-      // Test 3: Webhook with test payload
-      try {
-        const testPayload = {
-          image_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-          product_name: 'Test Product',
-          session_id: 'debug_test_session'
-        };
-        
-        const payloadTest = await fetch('https://n8n-360-video-ai.onrender.com/webhook/create-360-video', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(testPayload)
-        });
-        const payloadResponse = await payloadTest.text();
-        debugTests.push({
-          test: 'With Test Payload',
-          status: payloadTest.status,
-          response: payloadResponse.substring(0, 200),
-          success: payloadTest.status < 500
-        });
-      } catch (error) {
-        debugTests.push({
-          test: 'With Test Payload',
-          error: error instanceof Error ? error.message : 'Failed',
-          success: false
-        });
-      }
-
       res.json({
-        timestamp: new Date().toISOString(),
-        tests: debugTests,
-        recommendations: [
-          "Check if n8n workflow is activated",
-          "Verify environment variables are set correctly",
-          "Ensure webhook response mode is set to 'Last node'",
-          "Check if Gemini API key has sufficient quota",
-          "Verify Vertex AI access token is valid"
-        ]
+        success: true,
+        url: uploadData.url,
+        fileId: uploadData.fileId,
+        name: uploadData.name,
       });
     } catch (error) {
+      console.error('ImageKit upload error:', error);
       res.status(500).json({ 
-        error: 'Debug test failed',
+        error: 'Failed to upload to ImageKit',
         details: error instanceof Error ? error.message : 'Unknown error'
       });
+    }
+  });
+
+  // 3. Gemini Image Analysis Endpoint
+  app.post('/api/gemini/analyze', async (req: Request, res: Response) => {
+    try {
+      const { imageData, productName = 'Product' } = req.body;
+      
+      if (!imageData) {
+        return res.status(400).json({ error: 'Image data is required' });
+      }
+
+      const geminiApiKey = process.env.GEMINI_API_KEY;
+      if (!geminiApiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+      }
+
+      const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                {
+                  inline_data: {
+                    mime_type: 'image/jpeg',
+                    data: base64Data
+                  }
+                },
+                {
+                  text: `Analyze this ${productName} image and create a detailed description for 360-degree video generation. Focus on: product type, key features, materials, colors, textures, and visual characteristics. Be specific and descriptive for AI video generation.`
+                }
+              ]
+            }]
+          })
+        }
+      );
+
+      if (!geminiResponse.ok) {
+        throw new Error(`Gemini API error: ${geminiResponse.status}`);
+      }
+
+      const geminiData = await geminiResponse.json();
+      
+      if (!geminiData.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Invalid Gemini response');
+      }
+
+      const description = geminiData.candidates[0].content.parts[0].text;
+      
+      const videoPrompt = `Create a professional 360-degree rotating product video showcasing this ${productName}. ${description}. The video should feature smooth rotation, professional lighting, clean background, and highlight all key features and details of the product. Style: Product photography, commercial quality, 8-10 seconds duration.`;
+
+      res.json({
+        success: true,
+        description,
+        videoPrompt,
+      });
+    } catch (error) {
+      console.error('Gemini analysis error:', error);
+      res.status(500).json({ 
+        error: 'Failed to analyze image with Gemini',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // 4. Gemini Veo Video Generation Endpoint
+  app.post('/api/gemini/generate-video', async (req: Request, res: Response) => {
+    try {
+      const { prompt, productName = 'Product' } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: 'Video prompt is required' });
+      }
+
+      const geminiApiKey = process.env.GEMINI_API_KEY;
+      if (!geminiApiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+      }
+
+      const veoResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              response_modalities: ['VIDEO'],
+              media_resolution: 'MEDIUM'
+            }
+          })
+        }
+      );
+
+      if (!veoResponse.ok) {
+        const errorText = await veoResponse.text();
+        throw new Error(`Gemini Veo API error: ${veoResponse.status} - ${errorText}`);
+      }
+
+      const veoData = await veoResponse.json();
+      
+      if (veoData.candidates?.[0]?.content?.parts?.[0]?.inline_data) {
+        const videoData = veoData.candidates[0].content.parts[0].inline_data.data;
+        const mimeType = veoData.candidates[0].content.parts[0].inline_data.mime_type || 'video/mp4';
+        
+        const videoBuffer = Buffer.from(videoData, 'base64');
+        
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Disposition', `attachment; filename="${productName.replace(/[^a-z0-9]/gi, '_')}_360_video.mp4"`);
+        res.setHeader('Content-Length', videoBuffer.length);
+        res.send(videoBuffer);
+      } else {
+        res.status(500).json({ 
+          error: 'Video generation failed',
+          details: 'No video data in response',
+          response: veoData
+        });
+      }
+    } catch (error) {
+      console.error('Gemini Veo generation error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate video with Gemini Veo',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // 5. Complete Workflow Endpoint (All-in-One)
+  app.post('/api/generate-360-video', async (req: Request, res: Response) => {
+    try {
+      const { imageData, productName = 'Product', shopifyProductId } = req.body;
+      
+      if (!imageData) {
+        return res.status(400).json({ error: 'Image data is required' });
+      }
+
+      const jobId = crypto.randomUUID();
+      console.log(`[${jobId}] Starting 360° video generation for: ${productName}`);
+
+      const videoGen = await storage.createVideoGeneration({
+        productName,
+        imageUrl: imageData,
+        status: 'pending',
+      });
+
+      await storage.updateVideoGeneration(videoGen.id, { status: 'analyzing' });
+      console.log(`[${jobId}] Step 1: Uploading to ImageKit...`);
+      
+      let imagekitUrl = imageData;
+      try {
+        const imagekitResponse = await fetch(`${req.protocol}://${req.get('host')}/api/imagekit/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageData,
+            fileName: `${productName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`
+          }),
+        });
+        
+        if (imagekitResponse.ok) {
+          const imagekitData = await imagekitResponse.json();
+          imagekitUrl = imagekitData.url;
+          await storage.updateVideoGeneration(videoGen.id, { imagekitUrl });
+        }
+      } catch (err) {
+        console.warn(`[${jobId}] ImageKit upload failed, using original image`);
+      }
+
+      console.log(`[${jobId}] Step 2: Analyzing image with Gemini...`);
+      const analysisResponse = await fetch(`${req.protocol}://${req.get('host')}/api/gemini/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData, productName }),
+      });
+
+      if (!analysisResponse.ok) {
+        throw new Error('Gemini analysis failed');
+      }
+
+      const analysisData = await analysisResponse.json();
+      await storage.updateVideoGeneration(videoGen.id, {
+        geminiDescription: analysisData.description,
+        videoPrompt: analysisData.videoPrompt,
+        status: 'generating',
+      });
+
+      console.log(`[${jobId}] Step 3: Generating 360° video with Gemini Veo...`);
+      const videoResponse = await fetch(`${req.protocol}://${req.get('host')}/api/gemini/generate-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: analysisData.videoPrompt,
+          productName,
+        }),
+      });
+
+      if (!videoResponse.ok) {
+        const errorData = await videoResponse.json();
+        throw new Error(errorData.details || 'Video generation failed');
+      }
+
+      const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+      const videoBase64 = videoBuffer.toString('base64');
+
+      await storage.updateVideoGeneration(videoGen.id, {
+        videoData: videoBase64,
+        status: 'completed',
+      });
+
+      console.log(`[${jobId}] ✅ Video generation completed successfully`);
+
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', `attachment; filename="${productName.replace(/[^a-z0-9]/gi, '_')}_360_video.mp4"`);
+      res.setHeader('Content-Length', videoBuffer.length);
+      res.send(videoBuffer);
+
+    } catch (error) {
+      console.error('Complete workflow error:', error);
+      res.status(500).json({ 
+        error: 'Video generation workflow failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // 6. Get Video Generation Status
+  app.get('/api/video-generation/:id', async (req: Request, res: Response) => {
+    try {
+      const videoGen = await storage.getVideoGeneration(req.params.id);
+      
+      if (!videoGen) {
+        return res.status(404).json({ error: 'Video generation not found' });
+      }
+
+      res.json(videoGen);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch video generation' });
+    }
+  });
+
+  // 7. List All Video Generations
+  app.get('/api/video-generations', async (req: Request, res: Response) => {
+    try {
+      const generations = await storage.listVideoGenerations();
+      res.json({ generations });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch video generations' });
     }
   });
 
