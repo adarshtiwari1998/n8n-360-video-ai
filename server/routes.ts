@@ -115,93 +115,154 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
   return { description, videoPrompt };
 }
 
-async function generateVideoWithGemini(prompt: string, productName: string) {
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
-    throw new Error('GEMINI_API_KEY not configured');
+async function generateVideoWithVertexAI(prompt: string, productName: string) {
+  const vertexApiKey = process.env.VERTEX_AI_API_KEY;
+  
+  if (!vertexApiKey) {
+    throw new Error('VERTEX_AI_API_KEY not configured');
   }
 
-  console.log('Generating video with Veo 3...');
+  console.log('Generating video with Vertex AI Veo 2...');
   
-  // Use the Veo 3 model for video generation
-  const veoResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/veo-3.0-generate-001:generateVideos?key=${geminiApiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: prompt,
-        config: {
-          resolution: '720p',
-          duration: '8s',
-          aspectRatio: '16:9'
-        }
-      })
+  // Vertex AI requires a project ID and location - extract from API key or use defaults
+  // Most Vertex AI API keys contain the project info
+  const location = 'us-central1'; // Default location
+  
+  // The VERTEX_AI_API_KEY might be an access token or service account key
+  // Try using it as a Bearer token first
+  let accessToken = vertexApiKey;
+  
+  // If it looks like a service account JSON, we need to generate an access token
+  // For now, assume it's already an access token or API key
+  
+  // Veo 2 API endpoint - using the Vertex AI REST API
+  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT_ID || 'your-project-id'}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
+  
+  const requestBody = {
+    instances: [{
+      prompt: prompt
+    }],
+    parameters: {
+      aspectRatio: '16:9',
+      duration: 8,
+      responseCount: 1
     }
-  );
+  };
+
+  console.log('Calling Vertex AI Veo 2 endpoint...');
+  
+  const veoResponse = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(requestBody)
+  });
 
   if (!veoResponse.ok) {
     const errorText = await veoResponse.text();
-    throw new Error(`Gemini Veo API error: ${veoResponse.status} - ${errorText}`);
+    throw new Error(`Vertex AI Veo 2 API error: ${veoResponse.status} - ${errorText}`);
   }
 
   const veoData = await veoResponse.json();
-  console.log('Veo response:', JSON.stringify(veoData, null, 2));
+  console.log('Veo 2 response received');
   
-  // The response includes an operation that we need to poll for completion
-  if (veoData.name) {
-    // This is an operation - we need to poll for completion
-    const operationName = veoData.name;
-    console.log('Video generation started, operation:', operationName);
-    
-    // Poll for completion (max 2 minutes)
-    const maxAttempts = 24; // 24 * 5 seconds = 2 minutes
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-      
-      const statusResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${geminiApiKey}`,
-        { method: 'GET', headers: { 'Content-Type': 'application/json' } }
-      );
-      
-      if (!statusResponse.ok) {
-        throw new Error(`Failed to check video status: ${statusResponse.status}`);
-      }
-      
-      const statusData = await statusResponse.json();
-      
-      if (statusData.done) {
-        // Video is ready
-        if (statusData.error) {
-          throw new Error(`Video generation failed: ${JSON.stringify(statusData.error)}`);
-        }
-        
-        if (statusData.response?.generatedVideos?.[0]?.video) {
-          const videoData = statusData.response.generatedVideos[0].video;
-          return { 
-            videoData: videoData, 
-            mimeType: 'video/mp4' 
-          };
-        } else {
-          throw new Error('No video data in completed response');
-        }
-      }
-      
-      console.log(`Video generation in progress... (attempt ${i + 1}/${maxAttempts})`);
+  // Vertex AI returns an operation that needs to be polled
+  if (veoData.name || veoData.predictions?.[0]?.videoUri) {
+    // Check if we have direct video data or need to poll
+    if (veoData.predictions?.[0]?.video) {
+      // Direct video data (base64)
+      return {
+        videoData: veoData.predictions[0].video,
+        mimeType: 'video/mp4'
+      };
     }
     
-    throw new Error('Video generation timed out after 2 minutes');
+    if (veoData.predictions?.[0]?.videoUri) {
+      // Video is at a URI - download it
+      const videoUri = veoData.predictions[0].videoUri;
+      console.log('Downloading video from URI:', videoUri);
+      
+      const videoResponse = await fetch(videoUri, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+      
+      if (!videoResponse.ok) {
+        throw new Error(`Failed to download video: ${videoResponse.status}`);
+      }
+      
+      const videoBuffer = await videoResponse.arrayBuffer();
+      const videoData = Buffer.from(videoBuffer).toString('base64');
+      
+      return {
+        videoData: videoData,
+        mimeType: 'video/mp4'
+      };
+    }
+    
+    // Operation-based response - poll for completion
+    if (veoData.name) {
+      const operationName = veoData.name;
+      console.log('Video generation started, operation:', operationName);
+      
+      // Poll for completion
+      const maxAttempts = 40; // 40 * 5 seconds = ~3 minutes
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        const statusResponse = await fetch(
+          `https://us-central1-aiplatform.googleapis.com/v1/${operationName}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        if (!statusResponse.ok) {
+          throw new Error(`Failed to check status: ${statusResponse.status}`);
+        }
+        
+        const statusData = await statusResponse.json();
+        
+        if (statusData.done) {
+          if (statusData.error) {
+            throw new Error(`Video generation failed: ${JSON.stringify(statusData.error)}`);
+          }
+          
+          if (statusData.response?.predictions?.[0]?.video) {
+            return {
+              videoData: statusData.response.predictions[0].video,
+              mimeType: 'video/mp4'
+            };
+          }
+          
+          if (statusData.response?.predictions?.[0]?.videoUri) {
+            const videoUri = statusData.response.predictions[0].videoUri;
+            const videoResponse = await fetch(videoUri, {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            const videoBuffer = await videoResponse.arrayBuffer();
+            return {
+              videoData: Buffer.from(videoBuffer).toString('base64'),
+              mimeType: 'video/mp4'
+            };
+          }
+        }
+        
+        console.log(`Video generation in progress... (${i + 1}/${maxAttempts})`);
+      }
+      
+      throw new Error('Video generation timed out');
+    }
   }
   
-  // Check for inline video data (immediate response)
-  if (veoData.generatedVideos?.[0]?.video) {
-    return { 
-      videoData: veoData.generatedVideos[0].video, 
-      mimeType: 'video/mp4' 
-    };
-  }
-  
-  throw new Error('Unexpected Veo API response format: ' + JSON.stringify(veoData));
+  throw new Error('Unexpected Vertex AI response: ' + JSON.stringify(veoData));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -598,8 +659,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       console.log(`[${jobId}] Image analysis complete`);
 
-      console.log(`[${jobId}] Step 3: Generating 360° video with Gemini Veo...`);
-      const { videoData, mimeType } = await generateVideoWithGemini(
+      console.log(`[${jobId}] Step 3: Generating 360° video with Vertex AI Veo 2...`);
+      const { videoData, mimeType } = await generateVideoWithVertexAI(
         analysisData.videoPrompt,
         productName
       );
