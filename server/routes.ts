@@ -122,35 +122,45 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 }
 
 async function generateVideoWithVertexAI(prompt: string, productName: string) {
-  let serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
   const projectId = process.env.VERTEX_PROJECT_ID;
   
-  // Try to read from credentials.json file if env var is not set or invalid
-  if (!serviceAccountJson) {
-    const credentialsPath = path.join(process.cwd(), 'credentials.json');
-    if (fs.existsSync(credentialsPath)) {
-      console.log('Reading credentials from credentials.json file...');
-      serviceAccountJson = fs.readFileSync(credentialsPath, 'utf-8');
-    }
-  }
-  
-  if (!serviceAccountJson) {
-    throw new Error('VERTEX_SERVICE_ACCOUNT_JSON not configured. Please add your service account JSON to credentials.json file or Replit Secrets.');
-  }
-
   if (!projectId) {
     throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
   console.log('Generating video with Vertex AI Veo 2...');
   
-  // Parse the service account JSON
+  // Try to get credentials from multiple sources
   let credentials;
-  try {
-    credentials = JSON.parse(serviceAccountJson);
-  } catch (parseError) {
-    console.error('Failed to parse service account JSON:', parseError);
-    throw new Error('Invalid service account JSON format. Please ensure your credentials.json file contains valid JSON.');
+  let serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
+  
+  // First, try to read from credentials.json file (preferred method)
+  const credentialsPath = path.join(process.cwd(), 'credentials.json');
+  if (fs.existsSync(credentialsPath)) {
+    console.log('Reading credentials from credentials.json file...');
+    try {
+      const fileContent = fs.readFileSync(credentialsPath, 'utf-8');
+      credentials = JSON.parse(fileContent);
+      console.log('Successfully loaded credentials from credentials.json');
+    } catch (fileError) {
+      console.error('Failed to read/parse credentials.json:', fileError);
+    }
+  }
+  
+  // If file didn't work, try environment variable
+  if (!credentials && serviceAccountJson) {
+    console.log('Trying to parse credentials from environment variable...');
+    try {
+      credentials = JSON.parse(serviceAccountJson);
+      console.log('Successfully loaded credentials from environment variable');
+    } catch (envError) {
+      console.error('Failed to parse VERTEX_SERVICE_ACCOUNT_JSON from env:', envError);
+    }
+  }
+  
+  // If neither worked, throw error
+  if (!credentials) {
+    throw new Error('Could not load Google Cloud credentials. Please add valid JSON to credentials.json file.');
   }
   
   // Create GoogleAuth client with service account credentials
