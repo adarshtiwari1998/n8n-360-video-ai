@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { shopifyProductSchema } from "@shared/schema";
 import crypto from "crypto";
 import { GoogleAuth } from 'google-auth-library';
+import FormData from 'form-data';
 
 async function uploadToImageKit(imageData: string, fileName: string) {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
@@ -30,19 +31,19 @@ async function uploadToImageKit(imageData: string, fileName: string) {
     base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
   }
 
-  const uploadBody = {
-    file: base64Data,
-    fileName: fileName,
-    useUniqueFileName: true,
-  };
+  // Create FormData for multipart/form-data upload
+  const formData = new FormData();
+  formData.append('file', base64Data);
+  formData.append('fileName', fileName);
+  formData.append('useUniqueFileName', 'true');
 
   const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`
+      'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`,
+      ...formData.getHeaders(),
     },
-    body: JSON.stringify(uploadBody),
+    body: formData as any,
   });
 
   if (!uploadResponse.ok) {
@@ -133,8 +134,16 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   console.log('Generating video with Vertex AI Veo 2...');
   
-  // Parse the service account JSON
-  const credentials = JSON.parse(serviceAccountJson);
+  // Parse the service account JSON - clean it first
+  let credentials;
+  try {
+    // Remove any potential whitespace or newlines that might break JSON
+    const cleanedJson = serviceAccountJson.trim();
+    credentials = JSON.parse(cleanedJson);
+  } catch (parseError) {
+    console.error('Failed to parse VERTEX_SERVICE_ACCOUNT_JSON:', parseError);
+    throw new Error('Invalid VERTEX_SERVICE_ACCOUNT_JSON format. Please ensure it is valid JSON without extra characters.');
+  }
   
   // Create GoogleAuth client with service account credentials
   const auth = new GoogleAuth({
@@ -452,28 +461,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
-      const imagekitPublicKey = process.env.IMAGEKIT_PUBLIC_KEY;
-      const imagekitUrlEndpoint = process.env.IMAGEKIT_URL_ENDPOINT;
 
-      if (!imagekitPrivateKey || !imagekitPublicKey || !imagekitUrlEndpoint) {
+      if (!imagekitPrivateKey) {
         return res.status(500).json({ 
           error: 'ImageKit configuration missing',
-          details: 'IMAGEKIT_PRIVATE_KEY, IMAGEKIT_PUBLIC_KEY, and IMAGEKIT_URL_ENDPOINT must be set'
+          details: 'IMAGEKIT_PRIVATE_KEY must be set for server-side upload'
         });
       }
 
       const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
 
+      // Create FormData for multipart/form-data upload
+      const formData = new FormData();
+      formData.append('file', base64Data);
+      formData.append('fileName', fileName);
+
       const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`
+          'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`,
+          ...formData.getHeaders(),
         },
-        body: JSON.stringify({
-          file: base64Data,
-          fileName: fileName,
-        }),
+        body: formData as any,
       });
 
       if (!uploadResponse.ok) {
