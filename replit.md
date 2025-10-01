@@ -107,8 +107,33 @@ After setup, verify:
 - [ ] All devDependencies are present in node_modules
 - [ ] tsx, vite, typescript, esbuild binaries exist in node_modules/.bin/
 
+### Vertex AI Veo 3 Quota Setup
+
+**Important:** Veo video generation models require quota allocation in Google Cloud Platform.
+
+#### Initial Quota Issue
+By default, Veo models have **0 quota** which causes this error:
+```
+Quota exceeded for aiplatform.googleapis.com/online_prediction_requests_per_base_model 
+with base model: veo-3.0-generate-001
+```
+
+#### Solution: Request Quota Increase
+1. Go to **GCP Console → IAM & Admin → Quotas**
+2. Filter for: `base_model:veo-3.0-generate-001`
+3. Select the quota for region `us-central1`
+4. Click **EDIT** and request increase (e.g., 10 requests)
+5. Submit the request and wait for approval (usually within hours)
+
+#### Current Setup
+- **Model**: `veo-3.0-generate-001` (Veo 3)
+- **Region**: `us-central1`
+- **Quota**: 10 requests (configured)
+- **Authentication**: Service account via `credentials.json`
+
 ### Development Workflow
 - **Port Configuration**: Frontend and backend both run on port 5000 (Vite dev server in middleware mode)
 - **Hot Reload**: Vite provides instant HMR for frontend changes
 - **TypeScript**: tsx provides instant TypeScript execution for backend
 - **Environment Variables**: Store API keys in Replit Secrets (GEMINI_API_KEY, SHOPIFY credentials, etc.)
+- **Veo 3 Authentication**: Uses service account from `credentials.json` (already configured)

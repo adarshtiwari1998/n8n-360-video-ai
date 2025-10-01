@@ -122,33 +122,54 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 }
 
 async function generateVideoWithVertexAI(prompt: string, productName: string) {
-  const apiKey = process.env.VERTEX_AI_API_KEY;
+  const projectId = process.env.VERTEX_PROJECT_ID;
   
-  if (!apiKey) {
-    throw new Error('VERTEX_AI_API_KEY not configured');
+  if (!projectId) {
+    throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
-  console.log('Generating video with Google AI Studio Veo 2...');
+  console.log('Generating video with Vertex AI Veo 3...');
   
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/veo-002:generateContent?key=${apiKey}`;
+  const credentialsPath = path.join(process.cwd(), 'credentials.json');
+  if (!fs.existsSync(credentialsPath)) {
+    throw new Error('credentials.json file not found. Please add your service account credentials.');
+  }
+
+  const fileContent = fs.readFileSync(credentialsPath, 'utf-8');
+  const credentials = JSON.parse(fileContent);
+  
+  const auth = new GoogleAuth({
+    credentials: credentials,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+
+  const client = await auth.getClient();
+  const accessToken = await client.getAccessToken();
+  
+  if (!accessToken.token) {
+    throw new Error('Failed to get access token from service account');
+  }
+
+  const location = 'us-central1';
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-3.0-generate-001:predict`;
   
   const requestBody = {
-    contents: [{
-      parts: [{
-        text: prompt
-      }]
+    instances: [{
+      prompt: prompt
     }],
-    generationConfig: {
-      response_modalities: ['VIDEO'],
-      media_resolution: 'MEDIUM'
+    parameters: {
+      aspectRatio: '16:9',
+      sampleCount: 1,
+      durationSeconds: 8
     }
   };
 
-  console.log('Calling Google AI Studio Veo 2 endpoint...');
+  console.log('Calling Vertex AI Veo 3 endpoint with quota...');
   
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
     headers: {
+      'Authorization': `Bearer ${accessToken.token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(requestBody)
@@ -156,23 +177,20 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   if (!veoResponse.ok) {
     const errorText = await veoResponse.text();
-    throw new Error(`Google AI Studio Veo 2 API error: ${veoResponse.status} - ${errorText}`);
+    throw new Error(`Vertex AI Veo 3 API error: ${veoResponse.status} - ${errorText}`);
   }
 
   const veoData = await veoResponse.json();
-  console.log('Veo 2 response received');
+  console.log('Veo 3 response received, processing...');
   
-  if (veoData.candidates?.[0]?.content?.parts?.[0]?.inline_data) {
-    const videoData = veoData.candidates[0].content.parts[0].inline_data.data;
-    const mimeType = veoData.candidates[0].content.parts[0].inline_data.mime_type || 'video/mp4';
-    
+  if (veoData.predictions?.[0]?.bytesBase64Encoded) {
     return {
-      videoData: videoData,
-      mimeType: mimeType
+      videoData: veoData.predictions[0].bytesBase64Encoded,
+      mimeType: 'video/mp4'
     };
   }
   
-  throw new Error('Unexpected Google AI Studio response: ' + JSON.stringify(veoData));
+  throw new Error('Unexpected Vertex AI response: ' + JSON.stringify(veoData));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
