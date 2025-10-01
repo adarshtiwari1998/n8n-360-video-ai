@@ -116,7 +116,7 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 
   const description = geminiData.candidates[0].content.parts[0].text;
   
-  const videoPrompt = `Create a professional 360-degree rotating product video showcasing this ${productName}. ${description}. The video should feature smooth rotation, professional lighting, clean background, and highlight all key features and details of the product. Style: Product photography, commercial quality, 8-10 seconds duration.`;
+  const videoPrompt = `Create a professional 360-degree rotating product video showcasing this ${productName}. ${description}. The video should feature smooth 360-degree rotation, professional lighting, clean background, and highlight all key features and details of the product. Make it 360 degrees. Style: Product photography, commercial quality, 8 seconds duration.`;
 
   return { description, videoPrompt };
 }
@@ -128,7 +128,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
-  console.log('Generating video with Vertex AI Veo 2...');
+  console.log('Generating video with Vertex AI Veo 3...');
   
   // Try to get credentials from multiple sources
   let credentials;
@@ -178,7 +178,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   }
 
   const location = 'us-central1';
-  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-3.0-generate-preview:predict`;
   
   const requestBody = {
     instances: [{
@@ -191,7 +191,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     }
   };
 
-  console.log('Calling Vertex AI Veo 2 endpoint...');
+  console.log('Calling Vertex AI Veo 3 endpoint...');
   
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
@@ -204,11 +204,11 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   if (!veoResponse.ok) {
     const errorText = await veoResponse.text();
-    throw new Error(`Vertex AI Veo 2 API error: ${veoResponse.status} - ${errorText}`);
+    throw new Error(`Vertex AI Veo 3 API error: ${veoResponse.status} - ${errorText}`);
   }
 
   const veoData = await veoResponse.json();
-  console.log('Veo 2 response received');
+  console.log('Veo 3 response received');
   
   // Vertex AI returns an operation that needs to be polled
   if (veoData.name || veoData.predictions?.[0]?.videoUri) {
