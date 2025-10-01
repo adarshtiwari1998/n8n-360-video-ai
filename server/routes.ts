@@ -151,7 +151,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   }
 
   const location = 'us-central1';
-  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predictLongRunning`;
   
   const requestBody = {
     instances: [{
@@ -164,7 +164,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     }
   };
 
-  console.log('Calling Vertex AI Veo 2 endpoint...');
+  console.log('Calling Vertex AI Veo 2 predictLongRunning endpoint...');
   
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
@@ -180,17 +180,57 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     throw new Error(`Vertex AI Veo 2 API error: ${veoResponse.status} - ${errorText}`);
   }
 
-  const veoData = await veoResponse.json();
-  console.log('Veo 2 response received, processing...');
+  const operationData = await veoResponse.json();
+  console.log('Veo 2 operation started:', operationData.name);
   
-  if (veoData.predictions?.[0]?.bytesBase64Encoded) {
-    return {
-      videoData: veoData.predictions[0].bytesBase64Encoded,
-      mimeType: 'video/mp4'
-    };
+  // Poll the operation until it's done
+  const operationName = operationData.name;
+  const operationEndpoint = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+  
+  let operationComplete = false;
+  let attempts = 0;
+  const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+  
+  while (!operationComplete && attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    attempts++;
+    
+    const statusResponse = await fetch(operationEndpoint, {
+      headers: {
+        'Authorization': `Bearer ${accessToken.token}`,
+      }
+    });
+    
+    if (!statusResponse.ok) {
+      throw new Error(`Failed to check operation status: ${statusResponse.status}`);
+    }
+    
+    const statusData = await statusResponse.json();
+    console.log(`Veo 2 operation status check ${attempts}/${maxAttempts}:`, statusData.done ? 'Complete' : 'Processing...');
+    
+    if (statusData.done) {
+      operationComplete = true;
+      
+      if (statusData.error) {
+        throw new Error(`Veo 2 operation failed: ${JSON.stringify(statusData.error)}`);
+      }
+      
+      if (statusData.response?.predictions?.[0]?.bytesBase64Encoded) {
+        return {
+          videoData: statusData.response.predictions[0].bytesBase64Encoded,
+          mimeType: 'video/mp4'
+        };
+      }
+      
+      throw new Error('Unexpected Veo 2 response: ' + JSON.stringify(statusData.response));
+    }
   }
   
-  throw new Error('Unexpected Vertex AI response: ' + JSON.stringify(veoData));
+  if (!operationComplete) {
+    throw new Error('Veo 2 operation timed out after 5 minutes');
+  }
+  
+  throw new Error('Unexpected error in Veo 2 generation');
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
