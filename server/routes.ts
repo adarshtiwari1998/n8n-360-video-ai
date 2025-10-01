@@ -184,7 +184,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   console.log('Veo 2 operation started:', operationData.name);
   
   // Poll the operation until it's done
-  // Use the full operation name path returned from Veo
+  // For publisher/google/models operations, use the full operation path directly
   const operationName = operationData.name;
   const operationEndpoint = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
   
@@ -198,10 +198,18 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
     attempts++;
     
-    const statusResponse = await fetch(operationEndpoint, {
+    // Use fetchPredictOperation method for Veo operations
+    const fetchOpEndpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:fetchPredictOperation`;
+    
+    const statusResponse = await fetch(fetchOpEndpoint, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken.token}`,
-      }
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        operationName: operationName
+      })
     });
     
     if (!statusResponse.ok) {
@@ -219,6 +227,11 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
         throw new Error(`Veo 2 operation failed: ${JSON.stringify(statusData.error)}`);
       }
       
+      // Log the response structure to debug
+      console.log('Veo 2 operation response keys:', Object.keys(statusData.response || {}));
+      console.log('Veo 2 operation response type:', statusData.response?.['@type']);
+      
+      // Check for video data in various possible locations
       if (statusData.response?.predictions?.[0]?.bytesBase64Encoded) {
         return {
           videoData: statusData.response.predictions[0].bytesBase64Encoded,
@@ -226,7 +239,21 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
         };
       }
       
-      throw new Error('Unexpected Veo 2 response: ' + JSON.stringify(statusData.response));
+      if (statusData.response?.videos?.[0]?.bytesBase64Encoded) {
+        return {
+          videoData: statusData.response.videos[0].bytesBase64Encoded,
+          mimeType: statusData.response.videos[0].mimeType || 'video/mp4'
+        };
+      }
+      
+      if (statusData.response?.bytesBase64Encoded) {
+        return {
+          videoData: statusData.response.bytesBase64Encoded,
+          mimeType: statusData.response.mimeType || 'video/mp4'
+        };
+      }
+      
+      throw new Error('Unexpected Veo 2 response structure. Response keys: ' + JSON.stringify(Object.keys(statusData.response || {})));
     }
   }
   
