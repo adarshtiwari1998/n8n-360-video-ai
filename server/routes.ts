@@ -5,6 +5,8 @@ import { shopifyProductSchema } from "@shared/schema";
 import crypto from "crypto";
 import { GoogleAuth } from 'google-auth-library';
 import FormData from 'form-data';
+import fs from 'fs';
+import path from 'path';
 
 async function uploadToImageKit(imageData: string, fileName: string) {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
@@ -120,11 +122,20 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 }
 
 async function generateVideoWithVertexAI(prompt: string, productName: string) {
-  const serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
+  let serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
   const projectId = process.env.VERTEX_PROJECT_ID;
   
+  // Try to read from credentials.json file if env var is not set or invalid
   if (!serviceAccountJson) {
-    throw new Error('VERTEX_SERVICE_ACCOUNT_JSON not configured. Please add your service account JSON to Replit Secrets.');
+    const credentialsPath = path.join(process.cwd(), 'credentials.json');
+    if (fs.existsSync(credentialsPath)) {
+      console.log('Reading credentials from credentials.json file...');
+      serviceAccountJson = fs.readFileSync(credentialsPath, 'utf-8');
+    }
+  }
+  
+  if (!serviceAccountJson) {
+    throw new Error('VERTEX_SERVICE_ACCOUNT_JSON not configured. Please add your service account JSON to credentials.json file or Replit Secrets.');
   }
 
   if (!projectId) {
@@ -133,15 +144,13 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   console.log('Generating video with Vertex AI Veo 2...');
   
-  // Parse the service account JSON - clean it first
+  // Parse the service account JSON
   let credentials;
   try {
-    // Remove any potential whitespace or newlines that might break JSON
-    const cleanedJson = serviceAccountJson.trim();
-    credentials = JSON.parse(cleanedJson);
+    credentials = JSON.parse(serviceAccountJson);
   } catch (parseError) {
-    console.error('Failed to parse VERTEX_SERVICE_ACCOUNT_JSON:', parseError);
-    throw new Error('Invalid VERTEX_SERVICE_ACCOUNT_JSON format. Please ensure it is valid JSON without extra characters.');
+    console.error('Failed to parse service account JSON:', parseError);
+    throw new Error('Invalid service account JSON format. Please ensure your credentials.json file contains valid JSON.');
   }
   
   // Create GoogleAuth client with service account credentials
