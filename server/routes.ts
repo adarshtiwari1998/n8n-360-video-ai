@@ -7,6 +7,8 @@ import { GoogleAuth } from 'google-auth-library';
 import FormData from 'form-data';
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
+import http from 'http';
 
 async function uploadToImageKit(imageData: string, fileName: string) {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
@@ -15,18 +17,14 @@ async function uploadToImageKit(imageData: string, fileName: string) {
     throw new Error('ImageKit IMAGEKIT_PRIVATE_KEY not configured');
   }
 
-  // Check if imageData is a URL or base64
   const isUrl = imageData.startsWith('http://') || imageData.startsWith('https://');
   
-  // Create FormData for multipart/form-data upload
   const formData = new FormData();
   
   if (isUrl) {
-    // ImageKit can directly download from URL
     console.log('Uploading image from URL to ImageKit:', imageData);
     formData.append('file', imageData);
   } else {
-    // Clean up base64 data and send it
     const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
     console.log('Uploading base64 image to ImageKit');
     formData.append('file', base64Data);
@@ -35,24 +33,42 @@ async function uploadToImageKit(imageData: string, fileName: string) {
   formData.append('fileName', fileName);
   formData.append('useUniqueFileName', 'true');
 
-  const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`,
-      ...formData.getHeaders(),
-    },
-    body: formData as any,
+  return new Promise((resolve, reject) => {
+    const options = {
+      method: 'POST',
+      hostname: 'upload.imagekit.io',
+      path: '/api/v1/files/upload',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`${imagekitPrivateKey}:`).toString('base64')}`,
+        ...formData.getHeaders(),
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          const result = JSON.parse(data);
+          console.log('ImageKit upload successful:', result.url);
+          resolve(result);
+        } else {
+          console.error('ImageKit upload failed. Response:', data);
+          reject(new Error(`ImageKit upload failed: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    formData.pipe(req);
   });
-
-  if (!uploadResponse.ok) {
-    const errorText = await uploadResponse.text();
-    console.error('ImageKit upload failed. Response:', errorText);
-    throw new Error(`ImageKit upload failed: ${errorText}`);
-  }
-
-  const result = await uploadResponse.json();
-  console.log('ImageKit upload successful:', result.url);
-  return result;
 }
 
 async function analyzeImageWithGemini(imageDataOrUrl: string, productName: string) {
@@ -121,7 +137,7 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
   return { description, videoPrompt };
 }
 
-async function generateVideoWithVertexAI(prompt: string, productName: string) {
+async function generateVideoWithVertexAI(prompt: string, productName: string, productImageData?: string) {
   const projectId = process.env.VERTEX_PROJECT_ID;
   
   if (!projectId) {
@@ -153,10 +169,47 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   const location = 'us-central1';
   const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predictLongRunning`;
   
+  const instance: any = {
+    prompt: prompt
+  };
+
+  if (productImageData) {
+    let base64Data: string;
+    
+    if (productImageData.startsWith('http://') || productImageData.startsWith('https://')) {
+      console.log('Fetching product image from URL for Veo 2:', productImageData);
+      const imageResponse = await fetch(productImageData);
+      if (!imageResponse.ok) {
+        console.warn('Failed to fetch image for Veo 2, proceeding without reference image');
+      } else {
+        const imageBuffer = await imageResponse.arrayBuffer();
+        base64Data = Buffer.from(imageBuffer).toString('base64');
+        
+        instance.referenceImages = [{
+          image: {
+            bytesBase64Encoded: base64Data,
+            mimeType: 'image/jpeg'
+          },
+          referenceType: 'asset'
+        }];
+        console.log('Added product image as reference to Veo 2 request');
+      }
+    } else {
+      base64Data = productImageData.includes(',') ? productImageData.split(',')[1] : productImageData;
+      
+      instance.referenceImages = [{
+        image: {
+          bytesBase64Encoded: base64Data,
+          mimeType: 'image/jpeg'
+        },
+        referenceType: 'asset'
+      }];
+      console.log('Added product image as reference to Veo 2 request');
+    }
+  }
+  
   const requestBody = {
-    instances: [{
-      prompt: prompt
-    }],
+    instances: [instance],
     parameters: {
       aspectRatio: '16:9',
       sampleCount: 1,
@@ -183,8 +236,6 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   const operationData = await veoResponse.json();
   console.log('Veo 2 operation started:', operationData.name);
   
-  // Poll the operation until it's done
-  // For publisher/google/models operations, use the full operation path directly
   const operationName = operationData.name;
   const operationEndpoint = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
   
@@ -192,13 +243,12 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   
   let operationComplete = false;
   let attempts = 0;
-  const maxAttempts = 60; // 5 minutes max (60 * 5 seconds)
+  const maxAttempts = 60;
   
   while (!operationComplete && attempts < maxAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+    await new Promise(resolve => setTimeout(resolve, 5000));
     attempts++;
     
-    // Use fetchPredictOperation method for Veo operations
     const fetchOpEndpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:fetchPredictOperation`;
     
     const statusResponse = await fetch(fetchOpEndpoint, {
@@ -660,7 +710,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[${jobId}] Step 3: Generating 360° video with Vertex AI Veo 2...`);
       const { videoData, mimeType } = await generateVideoWithVertexAI(
         analysisData.videoPrompt,
-        productName
+        productName,
+        imageToAnalyze
       );
 
       const videoBuffer = Buffer.from(videoData, 'base64');
