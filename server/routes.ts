@@ -16,24 +16,20 @@ async function uploadToImageKit(imageData: string, fileName: string) {
   // Check if imageData is a URL or base64
   const isUrl = imageData.startsWith('http://') || imageData.startsWith('https://');
   
-  let base64Data: string;
-  if (isUrl) {
-    // ImageKit requires base64 for server-side uploads, so fetch and convert
-    console.log('Fetching image from URL for ImageKit upload:', imageData);
-    const imageResponse = await fetch(imageData);
-    if (!imageResponse.ok) {
-      throw new Error(`Failed to fetch image from URL: ${imageResponse.status}`);
-    }
-    const imageBuffer = await imageResponse.arrayBuffer();
-    base64Data = Buffer.from(imageBuffer).toString('base64');
-  } else {
-    // It's already base64, just clean it up
-    base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
-  }
-
   // Create FormData for multipart/form-data upload
   const formData = new FormData();
-  formData.append('file', base64Data);
+  
+  if (isUrl) {
+    // ImageKit can directly download from URL
+    console.log('Uploading image from URL to ImageKit:', imageData);
+    formData.append('file', imageData);
+  } else {
+    // Clean up base64 data and send it
+    const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
+    console.log('Uploading base64 image to ImageKit');
+    formData.append('file', base64Data);
+  }
+  
   formData.append('fileName', fileName);
   formData.append('useUniqueFileName', 'true');
 
@@ -48,10 +44,13 @@ async function uploadToImageKit(imageData: string, fileName: string) {
 
   if (!uploadResponse.ok) {
     const errorText = await uploadResponse.text();
+    console.error('ImageKit upload failed. Response:', errorText);
     throw new Error(`ImageKit upload failed: ${errorText}`);
   }
 
-  return await uploadResponse.json();
+  const result = await uploadResponse.json();
+  console.log('ImageKit upload successful:', result.url);
+  return result;
 }
 
 async function analyzeImageWithGemini(imageDataOrUrl: string, productName: string) {
