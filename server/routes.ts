@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { shopifyProductSchema } from "@shared/schema";
 import crypto from "crypto";
+import { GoogleAuth } from 'google-auth-library';
 
 async function uploadToImageKit(imageData: string, fileName: string) {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
@@ -119,27 +120,38 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 }
 
 async function generateVideoWithVertexAI(prompt: string, productName: string) {
-  const vertexApiKey = process.env.VERTEX_AI_API_KEY;
+  const serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
+  const projectId = process.env.VERTEX_PROJECT_ID;
   
-  if (!vertexApiKey) {
-    throw new Error('VERTEX_AI_API_KEY not configured');
+  if (!serviceAccountJson) {
+    throw new Error('VERTEX_SERVICE_ACCOUNT_JSON not configured. Please add your service account JSON to Replit Secrets.');
+  }
+
+  if (!projectId) {
+    throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
   console.log('Generating video with Vertex AI Veo 2...');
   
-  // Vertex AI requires a project ID and location - extract from API key or use defaults
-  // Most Vertex AI API keys contain the project info
-  const location = 'us-central1'; // Default location
+  // Parse the service account JSON
+  const credentials = JSON.parse(serviceAccountJson);
   
-  // The VERTEX_AI_API_KEY might be an access token or service account key
-  // Try using it as a Bearer token first
-  let accessToken = vertexApiKey;
+  // Create GoogleAuth client with service account credentials
+  const auth = new GoogleAuth({
+    credentials: credentials,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+
+  // Get access token from service account
+  const client = await auth.getClient();
+  const accessToken = await client.getAccessToken();
   
-  // If it looks like a service account JSON, we need to generate an access token
-  // For now, assume it's already an access token or API key
-  
-  // Veo 2 API endpoint - using the Vertex AI REST API
-  const endpoint = `https://us-central1-aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT_ID || 'your-project-id'}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
+  if (!accessToken.token) {
+    throw new Error('Failed to get access token from service account');
+  }
+
+  const location = 'us-central1';
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
   
   const requestBody = {
     instances: [{
@@ -157,7 +169,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${accessToken}`,
+      'Authorization': `Bearer ${accessToken.token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(requestBody)
@@ -189,7 +201,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
       
       const videoResponse = await fetch(videoUri, {
         headers: {
-          'Authorization': `Bearer ${accessToken}`
+          'Authorization': `Bearer ${accessToken.token}`
         }
       });
       
@@ -217,11 +229,11 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
         await new Promise(resolve => setTimeout(resolve, 5000));
         
         const statusResponse = await fetch(
-          `https://us-central1-aiplatform.googleapis.com/v1/${operationName}`,
+          `https://${location}-aiplatform.googleapis.com/v1/${operationName}`,
           {
             method: 'GET',
             headers: {
-              'Authorization': `Bearer ${accessToken}`,
+              'Authorization': `Bearer ${accessToken.token}`,
               'Content-Type': 'application/json'
             }
           }
@@ -248,7 +260,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
           if (statusData.response?.predictions?.[0]?.videoUri) {
             const videoUri = statusData.response.predictions[0].videoUri;
             const videoResponse = await fetch(videoUri, {
-              headers: { 'Authorization': `Bearer ${accessToken}` }
+              headers: { 'Authorization': `Bearer ${accessToken.token}` }
             });
             const videoBuffer = await videoResponse.arrayBuffer();
             return {
