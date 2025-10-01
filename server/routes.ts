@@ -14,23 +14,26 @@ async function uploadToImageKit(imageData: string, fileName: string) {
   // Check if imageData is a URL or base64
   const isUrl = imageData.startsWith('http://') || imageData.startsWith('https://');
   
-  let uploadBody: any;
+  let base64Data: string;
   if (isUrl) {
-    // Upload from URL - server-side upload doesn't need publicKey
-    uploadBody = {
-      file: imageData,
-      fileName: fileName,
-      useUniqueFileName: true,
-    };
+    // ImageKit requires base64 for server-side uploads, so fetch and convert
+    console.log('Fetching image from URL for ImageKit upload:', imageData);
+    const imageResponse = await fetch(imageData);
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to fetch image from URL: ${imageResponse.status}`);
+    }
+    const imageBuffer = await imageResponse.arrayBuffer();
+    base64Data = Buffer.from(imageBuffer).toString('base64');
   } else {
-    // Upload from base64
-    const base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
-    uploadBody = {
-      file: base64Data,
-      fileName: fileName,
-      useUniqueFileName: true,
-    };
+    // It's already base64, just clean it up
+    base64Data = imageData.includes(',') ? imageData.split(',')[1] : imageData;
   }
+
+  const uploadBody = {
+    file: base64Data,
+    fileName: fileName,
+    useUniqueFileName: true,
+  };
 
   const uploadResponse = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
     method: 'POST',
@@ -458,7 +461,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body: JSON.stringify({
           file: base64Data,
           fileName: fileName,
-          publicKey: imagekitPublicKey,
         }),
       });
 
