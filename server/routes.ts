@@ -10,7 +10,16 @@ import path from 'path';
 import https from 'https';
 import http from 'http';
 
-async function uploadToImageKit(imageData: string, fileName: string) {
+interface ImageKitResponse {
+  fileId: string;
+  name: string;
+  url: string;
+  filePath: string;
+  size: number;
+  fileType: string;
+}
+
+async function uploadToImageKit(imageData: string, fileName: string): Promise<ImageKitResponse> {
   const imagekitPrivateKey = process.env.IMAGEKIT_PRIVATE_KEY;
 
   if (!imagekitPrivateKey) {

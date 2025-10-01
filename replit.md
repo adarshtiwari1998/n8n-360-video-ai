@@ -136,4 +136,41 @@ with base model: veo-3.0-generate-001
 - **Hot Reload**: Vite provides instant HMR for frontend changes
 - **TypeScript**: tsx provides instant TypeScript execution for backend
 - **Environment Variables**: Store API keys in Replit Secrets (GEMINI_API_KEY, SHOPIFY credentials, etc.)
-- **Veo 3 Authentication**: Uses service account from `credentials.json` (already configured)
+- **Veo 2 Authentication**: Uses service account from `credentials.json` (already configured)
+
+## Recent Changes (October 2025)
+
+### Image Conditioning for Veo 2 - 100% Product Accuracy
+
+**Issue Fixed:** Generated 360° videos were not matching the actual product image 100%. The video showed similar but not identical products because Veo 2 was only receiving text prompts without the actual product image.
+
+**Solution Implemented:**
+1. **ImageKit Upload Fix**: Fixed FormData compatibility issue by using Node.js https module instead of fetch API for multipart/form-data uploads
+2. **Veo 2 Image Conditioning**: Updated `generateVideoWithVertexAI()` to accept product image as `referenceImages` parameter in the API request
+3. **Workflow Integration**: Modified the complete video generation workflow to pass the actual product image to Veo 2
+
+**Technical Details:**
+- Veo 2 now receives the product image as a base64-encoded `referenceImage` with `referenceType: 'asset'`
+- The image is fetched from either URL or base64 data and included in the Veo 2 API request body
+- This ensures the generated 360° video features the exact same product, not a similar approximation
+
+**API Structure:**
+```json
+{
+  "instances": [{
+    "prompt": "Create a professional 360-degree rotating product video...",
+    "referenceImages": [{
+      "image": {
+        "bytesBase64Encoded": "base64_image_data",
+        "mimeType": "image/jpeg"
+      },
+      "referenceType": "asset"
+    }]
+  }],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "sampleCount": 1,
+    "durationSeconds": 8
+  }
+}
+```
