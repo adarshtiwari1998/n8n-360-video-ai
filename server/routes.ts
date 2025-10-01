@@ -122,81 +122,33 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 }
 
 async function generateVideoWithVertexAI(prompt: string, productName: string) {
-  const projectId = process.env.VERTEX_PROJECT_ID;
+  const apiKey = process.env.VERTEX_AI_API_KEY;
   
-  if (!projectId) {
-    throw new Error('VERTEX_PROJECT_ID not configured');
+  if (!apiKey) {
+    throw new Error('VERTEX_AI_API_KEY not configured');
   }
 
-  console.log('Generating video with Vertex AI Veo 3...');
+  console.log('Generating video with Google AI Studio Veo 2...');
   
-  // Try to get credentials from multiple sources
-  let credentials;
-  let serviceAccountJson = process.env.VERTEX_SERVICE_ACCOUNT_JSON;
-  
-  // First, try to read from credentials.json file (preferred method)
-  const credentialsPath = path.join(process.cwd(), 'credentials.json');
-  if (fs.existsSync(credentialsPath)) {
-    console.log('Reading credentials from credentials.json file...');
-    try {
-      const fileContent = fs.readFileSync(credentialsPath, 'utf-8');
-      credentials = JSON.parse(fileContent);
-      console.log('Successfully loaded credentials from credentials.json');
-    } catch (fileError) {
-      console.error('Failed to read/parse credentials.json:', fileError);
-    }
-  }
-  
-  // If file didn't work, try environment variable
-  if (!credentials && serviceAccountJson) {
-    console.log('Trying to parse credentials from environment variable...');
-    try {
-      credentials = JSON.parse(serviceAccountJson);
-      console.log('Successfully loaded credentials from environment variable');
-    } catch (envError) {
-      console.error('Failed to parse VERTEX_SERVICE_ACCOUNT_JSON from env:', envError);
-    }
-  }
-  
-  // If neither worked, throw error
-  if (!credentials) {
-    throw new Error('Could not load Google Cloud credentials. Please add valid JSON to credentials.json file.');
-  }
-  
-  // Create GoogleAuth client with service account credentials
-  const auth = new GoogleAuth({
-    credentials: credentials,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-  });
-
-  // Get access token from service account
-  const client = await auth.getClient();
-  const accessToken = await client.getAccessToken();
-  
-  if (!accessToken.token) {
-    throw new Error('Failed to get access token from service account');
-  }
-
-  const location = 'us-central1';
-  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-3.0-generate-preview:predict`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/veo-002:generateContent?key=${apiKey}`;
   
   const requestBody = {
-    instances: [{
-      prompt: prompt
+    contents: [{
+      parts: [{
+        text: prompt
+      }]
     }],
-    parameters: {
-      aspectRatio: '16:9',
-      duration: 8,
-      responseCount: 1
+    generationConfig: {
+      response_modalities: ['VIDEO'],
+      media_resolution: 'MEDIUM'
     }
   };
 
-  console.log('Calling Vertex AI Veo 3 endpoint...');
+  console.log('Calling Google AI Studio Veo 2 endpoint...');
   
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${accessToken.token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(requestBody)
@@ -204,107 +156,23 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   if (!veoResponse.ok) {
     const errorText = await veoResponse.text();
-    throw new Error(`Vertex AI Veo 3 API error: ${veoResponse.status} - ${errorText}`);
+    throw new Error(`Google AI Studio Veo 2 API error: ${veoResponse.status} - ${errorText}`);
   }
 
   const veoData = await veoResponse.json();
-  console.log('Veo 3 response received');
+  console.log('Veo 2 response received');
   
-  // Vertex AI returns an operation that needs to be polled
-  if (veoData.name || veoData.predictions?.[0]?.videoUri) {
-    // Check if we have direct video data or need to poll
-    if (veoData.predictions?.[0]?.video) {
-      // Direct video data (base64)
-      return {
-        videoData: veoData.predictions[0].video,
-        mimeType: 'video/mp4'
-      };
-    }
+  if (veoData.candidates?.[0]?.content?.parts?.[0]?.inline_data) {
+    const videoData = veoData.candidates[0].content.parts[0].inline_data.data;
+    const mimeType = veoData.candidates[0].content.parts[0].inline_data.mime_type || 'video/mp4';
     
-    if (veoData.predictions?.[0]?.videoUri) {
-      // Video is at a URI - download it
-      const videoUri = veoData.predictions[0].videoUri;
-      console.log('Downloading video from URI:', videoUri);
-      
-      const videoResponse = await fetch(videoUri, {
-        headers: {
-          'Authorization': `Bearer ${accessToken.token}`
-        }
-      });
-      
-      if (!videoResponse.ok) {
-        throw new Error(`Failed to download video: ${videoResponse.status}`);
-      }
-      
-      const videoBuffer = await videoResponse.arrayBuffer();
-      const videoData = Buffer.from(videoBuffer).toString('base64');
-      
-      return {
-        videoData: videoData,
-        mimeType: 'video/mp4'
-      };
-    }
-    
-    // Operation-based response - poll for completion
-    if (veoData.name) {
-      const operationName = veoData.name;
-      console.log('Video generation started, operation:', operationName);
-      
-      // Poll for completion
-      const maxAttempts = 40; // 40 * 5 seconds = ~3 minutes
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        const statusResponse = await fetch(
-          `https://${location}-aiplatform.googleapis.com/v1/${operationName}`,
-          {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${accessToken.token}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-        
-        if (!statusResponse.ok) {
-          throw new Error(`Failed to check status: ${statusResponse.status}`);
-        }
-        
-        const statusData = await statusResponse.json();
-        
-        if (statusData.done) {
-          if (statusData.error) {
-            throw new Error(`Video generation failed: ${JSON.stringify(statusData.error)}`);
-          }
-          
-          if (statusData.response?.predictions?.[0]?.video) {
-            return {
-              videoData: statusData.response.predictions[0].video,
-              mimeType: 'video/mp4'
-            };
-          }
-          
-          if (statusData.response?.predictions?.[0]?.videoUri) {
-            const videoUri = statusData.response.predictions[0].videoUri;
-            const videoResponse = await fetch(videoUri, {
-              headers: { 'Authorization': `Bearer ${accessToken.token}` }
-            });
-            const videoBuffer = await videoResponse.arrayBuffer();
-            return {
-              videoData: Buffer.from(videoBuffer).toString('base64'),
-              mimeType: 'video/mp4'
-            };
-          }
-        }
-        
-        console.log(`Video generation in progress... (${i + 1}/${maxAttempts})`);
-      }
-      
-      throw new Error('Video generation timed out');
-    }
+    return {
+      videoData: videoData,
+      mimeType: mimeType
+    };
   }
   
-  throw new Error('Unexpected Vertex AI response: ' + JSON.stringify(veoData));
+  throw new Error('Unexpected Google AI Studio response: ' + JSON.stringify(veoData));
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
