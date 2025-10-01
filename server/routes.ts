@@ -184,8 +184,11 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   console.log('Veo 2 operation started:', operationData.name);
   
   // Poll the operation until it's done
+  // Use the full operation name path returned from Veo
   const operationName = operationData.name;
   const operationEndpoint = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+  
+  console.log('Polling operation at:', operationEndpoint);
   
   let operationComplete = false;
   let attempts = 0;
@@ -202,7 +205,8 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     });
     
     if (!statusResponse.ok) {
-      throw new Error(`Failed to check operation status: ${statusResponse.status}`);
+      const errorText = await statusResponse.text();
+      throw new Error(`Failed to check operation status: ${statusResponse.status} - ${errorText}`);
     }
     
     const statusData = await statusResponse.json();
