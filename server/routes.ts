@@ -128,7 +128,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
-  console.log('Generating video with Vertex AI Veo 3...');
+  console.log('Generating video with Vertex AI Veo 2...');
   
   const credentialsPath = path.join(process.cwd(), 'credentials.json');
   if (!fs.existsSync(credentialsPath)) {
@@ -151,7 +151,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
   }
 
   const location = 'us-central1';
-  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-3.0-generate-001:predict`;
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predict`;
   
   const requestBody = {
     instances: [{
@@ -164,7 +164,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
     }
   };
 
-  console.log('Calling Vertex AI Veo 3 endpoint with quota...');
+  console.log('Calling Vertex AI Veo 2 endpoint...');
   
   const veoResponse = await fetch(endpoint, {
     method: 'POST',
@@ -177,11 +177,11 @@ async function generateVideoWithVertexAI(prompt: string, productName: string) {
 
   if (!veoResponse.ok) {
     const errorText = await veoResponse.text();
-    throw new Error(`Vertex AI Veo 3 API error: ${veoResponse.status} - ${errorText}`);
+    throw new Error(`Vertex AI Veo 2 API error: ${veoResponse.status} - ${errorText}`);
   }
 
   const veoData = await veoResponse.json();
-  console.log('Veo 3 response received, processing...');
+  console.log('Veo 2 response received, processing...');
   
   if (veoData.predictions?.[0]?.bytesBase64Encoded) {
     return {
