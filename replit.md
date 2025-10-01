@@ -126,7 +126,7 @@ with base model: veo-3.0-generate-001
 5. Submit the request and wait for approval (usually within hours)
 
 #### Current Setup
-- **Model**: `veo-3.0-generate-001` (Veo 3)
+- **Model**: `veo-2.0-generate-exp` (Veo 2 Experimental with reference image support)
 - **Region**: `us-central1`
 - **Quota**: 10 requests (configured)
 - **Authentication**: Service account via `credentials.json`
@@ -146,11 +146,13 @@ with base model: veo-3.0-generate-001
 
 **Solution Implemented:**
 1. **ImageKit Upload Fix**: Fixed FormData compatibility issue by using Node.js https module instead of fetch API for multipart/form-data uploads
-2. **Veo 2 Image Conditioning**: Updated `generateVideoWithVertexAI()` to accept product image as `referenceImages` parameter in the API request
-3. **Workflow Integration**: Modified the complete video generation workflow to pass the actual product image to Veo 2
+2. **Switched to Veo 2 Experimental Model**: Changed from `veo-2.0-generate-001` to `veo-2.0-generate-exp` which supports reference images with `asset` type
+3. **Veo 2 Image Conditioning**: Updated `generateVideoWithVertexAI()` to accept product image as `referenceImages` parameter in the API request
+4. **Workflow Integration**: Modified the complete video generation workflow to pass the actual product image to Veo 2
 
 **Technical Details:**
-- Veo 2 now receives the product image as a base64-encoded `referenceImage` with `referenceType: 'asset'`
+- Model: `veo-2.0-generate-exp` (experimental) supports `referenceImages` with `referenceType: 'asset'` for product preservation
+- The stable model `veo-2.0-generate-001` does NOT support this feature
 - The image is fetched from either URL or base64 data and included in the Veo 2 API request body
 - This ensures the generated 360° video features the exact same product, not a similar approximation
 

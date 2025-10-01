@@ -153,7 +153,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
     throw new Error('VERTEX_PROJECT_ID not configured');
   }
 
-  console.log('Generating video with Vertex AI Veo 2...');
+  console.log('Generating video with Vertex AI Veo 2 (Experimental with image conditioning)...');
   
   const credentialsPath = path.join(process.cwd(), 'credentials.json');
   if (!fs.existsSync(credentialsPath)) {
@@ -176,7 +176,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
   }
 
   const location = 'us-central1';
-  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:predictLongRunning`;
+  const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-exp:predictLongRunning`;
   
   const instance: any = {
     prompt: prompt
@@ -258,7 +258,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
     await new Promise(resolve => setTimeout(resolve, 5000));
     attempts++;
     
-    const fetchOpEndpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-001:fetchPredictOperation`;
+    const fetchOpEndpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-exp:fetchPredictOperation`;
     
     const statusResponse = await fetch(fetchOpEndpoint, {
       method: 'POST',
