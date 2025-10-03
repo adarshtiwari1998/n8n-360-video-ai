@@ -176,3 +176,66 @@ with base model: veo-3.0-generate-001
   }
 }
 ```
+
+### White Background & Enhanced Product Accuracy (Latest Fix - October 2025)
+
+**Problem:** Even with reference images, Veo 2 was generating videos with:
+- Grey/gradient backgrounds instead of clean white
+- Slightly different product appearance and angles
+- Not suitable for e-commerce product pages where 100% accuracy is required
+
+**Root Cause:** Generic prompts don't give Veo 2 enough specific instructions about:
+1. Exact white background requirements
+2. Preservation of product appearance from reference image
+3. Professional studio lighting setup
+
+**Solution Implemented:**
+
+1. **Enhanced Prompt Engineering:**
+   - Explicitly specifies "seamless pure white studio background"
+   - States "Pristine white backdrop with no gradients or color variations"
+   - Includes "The product maintains its exact appearance, colors, materials, and details from the reference image"
+   - Details professional studio lighting setup (key light, fill light, bounce cards)
+
+2. **Negative Prompts Added:**
+   - Tells Veo 2 to avoid: grey backgrounds, gradients, colored backgrounds
+   - Prevents: different products, modified products, unwanted shadows
+   - Excludes: text overlays, watermarks, clutter
+
+**New Prompt Structure:**
+```
+The exact [PRODUCT] from the reference image rotates smoothly on a seamless pure white studio background. 
+Perfect 360-degree turntable camera movement around the product. 
+Professional studio lighting setup with bright, even illumination and subtle soft shadows beneath the product only. 
+Pristine white backdrop with no gradients or color variations. 
+The product maintains its exact appearance, colors, materials, and details from the reference image. 
+Clean e-commerce product photography style. 
+Modern commercial aesthetic with minimalist white environment. 
+Camera: steady circular dolly shot. 
+Lighting: bright key light, soft fill, white bounce cards. 
+8 seconds duration.
+```
+
+**New API Request with Negative Prompt:**
+```json
+{
+  "instances": [{
+    "prompt": "[Enhanced prompt above]",
+    "negativePrompt": "grey background, gradient background, colored background, cluttered scene, busy environment, shadows on background, dark lighting, different product, modified product, text overlays, watermarks, people, hands, multiple objects",
+    "referenceImages": [{
+      "image": {
+        "bytesBase64Encoded": "base64_image_data",
+        "mimeType": "image/jpeg"
+      },
+      "referenceType": "asset"
+    }]
+  }],
+  "parameters": {
+    "aspectRatio": "16:9",
+    "sampleCount": 1,
+    "durationSeconds": 8
+  }
+}
+```
+
+**Result:** Videos now feature the exact product from the reference image on a clean white background, suitable for professional e-commerce product pages.

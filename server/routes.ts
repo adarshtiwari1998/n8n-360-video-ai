@@ -141,7 +141,7 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 
   const description = geminiData.candidates[0].content.parts[0].text;
   
-  const videoPrompt = `Create a professional 360-degree rotating product video showcasing this ${productName}. ${description}. The video should feature smooth 360-degree rotation, professional lighting, clean background, and highlight all key features and details of the product. Make it 360 degrees. Style: Product photography, commercial quality, 8 seconds duration.`;
+  const videoPrompt = `The exact ${productName} from the reference image rotates smoothly on a seamless pure white studio background. Perfect 360-degree turntable camera movement around the product. Professional studio lighting setup with bright, even illumination and subtle soft shadows beneath the product only. Pristine white backdrop with no gradients or color variations. The product maintains its exact appearance, colors, materials, and details from the reference image. Clean e-commerce product photography style. Modern commercial aesthetic with minimalist white environment. Camera: steady circular dolly shot. Lighting: bright key light, soft fill, white bounce cards. 8 seconds duration.`;
 
   return { description, videoPrompt };
 }
@@ -179,7 +179,8 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
   const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/veo-2.0-generate-exp:predictLongRunning`;
   
   const instance: any = {
-    prompt: prompt
+    prompt: prompt,
+    negativePrompt: "grey background, gradient background, colored background, cluttered scene, busy environment, shadows on background, dark lighting, different product, modified product, text overlays, watermarks, people, hands, multiple objects"
   };
 
   if (productImageData) {
