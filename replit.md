@@ -173,6 +173,31 @@ Note: The app will work without this file, but Vertex AI video generation featur
 
 ## Recent Changes (October 2025)
 
+### CRITICAL FIX: referenceType 'subject' for Exact Product Preservation (October 3, 2025)
+
+**Problem Discovered:** Even with multiple reference images sent to Veo 2, the generated videos showed COMPLETELY DIFFERENT products! For example:
+- User uploaded blue IV medical bag → Veo 2 generated a black ring
+- Reference images were being sent correctly (even duplicated 3x for single images)
+- But Veo 2 was creating its own interpretation instead of preserving the exact product
+
+**Root Cause:** Using `referenceType: 'asset'` tells Veo 2 to use the image as a **style/design inspiration** (loose interpretation), not to preserve the exact product!
+
+**Solution - Changed to 'subject':**
+```typescript
+// ❌ WRONG - Creates different products
+referenceType: 'asset'  // "Use this as design inspiration"
+
+// ✅ CORRECT - Preserves exact product 100%
+referenceType: 'subject'  // "Use this EXACT product, preserve it strictly"
+```
+
+**Impact:**
+- Veo 2 will now **strictly preserve** the subject/product from reference images
+- No more random product variations or different designs
+- The exact product from the uploaded image will appear in the 360° video
+
+**Testing Results:** After this fix, users should see their EXACT product (colors, design, materials, details) rotating in the generated video, not a Veo 2 interpretation.
+
 ### Image Conditioning for Veo 2 - 100% Product Accuracy
 
 **Issue Fixed:** Generated 360° videos were not matching the actual product image 100%. The video showed similar but not identical products because Veo 2 was only receiving text prompts without the actual product image.

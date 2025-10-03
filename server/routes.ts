@@ -217,7 +217,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
             bytesBase64Encoded: base64Data,
             mimeType: 'image/jpeg'
           },
-          referenceType: 'asset'
+          referenceType: 'subject'
         });
       } catch (err) {
         console.warn('Error processing reference image:', err);
