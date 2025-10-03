@@ -62,7 +62,30 @@ Preferred communication style: Simple, everyday language.
 
 ## Replit Setup & Troubleshooting
 
-### Initial Setup from GitHub Import
+### Successful Replit Setup (Completed October 3, 2025)
+
+✅ **Application is now running successfully on Replit!**
+
+#### What was configured:
+1. **Workflow**: "Start application" configured to run `npm run dev` on port 5000 with webview output
+2. **Vite Configuration**: Already properly configured with `allowedHosts: true` for Replit's proxy environment
+3. **Host Settings**: Server binds to `0.0.0.0:5000` which is required for Replit
+4. **Dependencies**: All npm packages installed correctly (tsx, vite, typescript, etc.)
+5. **Environment Secrets**: All required API keys are configured:
+   - GEMINI_API_KEY ✓
+   - VERTEX_PROJECT_ID ✓
+   - SHOPIFY_STORE_URL ✓
+   - SHOPIFY_ACCESS_TOKEN ✓
+   - IMAGEKIT_PRIVATE_KEY ✓
+6. **Deployment**: Configured for autoscale deployment with build and start scripts
+
+#### Current Status:
+- Server is running on port 5000 ✓
+- Frontend loads correctly ✓
+- Vite dev server is connected ✓
+- Hot module replacement (HMR) is working ✓
+
+### Initial Setup from GitHub Import (Reference)
 
 If you import this project from GitHub to Replit and encounter the `tsx: not found` error, follow these steps:
 
@@ -84,14 +107,14 @@ When `NODE_ENV=production` is set in the environment, npm will NOT install devDe
    ```
    You should see a symlink to the tsx executable.
 
-3. **Update package.json dev script (if needed):**
-   The dev script should use `npx tsx` to ensure tsx is found:
-   ```json
-   "dev": "NODE_ENV=development PORT=5000 npx tsx server/index.ts"
-   ```
+3. **Configure the workflow:**
+   Create a workflow named "Start application" with:
+   - Command: `npm run dev`
+   - Port: 5000
+   - Output type: webview
 
-4. **Restart the workflow:**
-   The "Start application" workflow should now start successfully on port 5000.
+4. **Verify the app is running:**
+   The "Start application" workflow should start successfully on port 5000.
 
 #### Why This Happens
 - Replit may set `NODE_ENV=production` by default in some cases
@@ -101,11 +124,11 @@ When `NODE_ENV=production` is set in the environment, npm will NOT install devDe
 
 #### Verification Checklist
 After setup, verify:
-- [ ] Server runs on port 5000 without errors
-- [ ] Vite dev server connects successfully
-- [ ] Frontend loads in the browser
-- [ ] All devDependencies are present in node_modules
-- [ ] tsx, vite, typescript, esbuild binaries exist in node_modules/.bin/
+- [x] Server runs on port 5000 without errors
+- [x] Vite dev server connects successfully
+- [x] Frontend loads in the browser
+- [x] All devDependencies are present in node_modules
+- [x] tsx, vite, typescript, esbuild binaries exist in node_modules/.bin/
 
 ### Vertex AI Veo 3 Quota Setup
 
@@ -131,12 +154,22 @@ with base model: veo-3.0-generate-001
 - **Quota**: 10 requests (configured)
 - **Authentication**: Service account via `credentials.json`
 
+#### Optional: Adding Vertex AI credentials.json
+If you want to use Vertex AI Veo 2 video generation, you need to add a `credentials.json` file:
+1. Go to GCP Console → IAM & Admin → Service Accounts
+2. Create or select a service account with Vertex AI permissions
+3. Generate a JSON key for the service account
+4. Save it as `credentials.json` in the project root directory
+5. The file is already in `.gitignore` so it won't be committed to Git
+
+Note: The app will work without this file, but Vertex AI video generation features will not be available.
+
 ### Development Workflow
 - **Port Configuration**: Frontend and backend both run on port 5000 (Vite dev server in middleware mode)
 - **Hot Reload**: Vite provides instant HMR for frontend changes
 - **TypeScript**: tsx provides instant TypeScript execution for backend
 - **Environment Variables**: Store API keys in Replit Secrets (GEMINI_API_KEY, SHOPIFY credentials, etc.)
-- **Veo 2 Authentication**: Uses service account from `credentials.json` (already configured)
+- **Veo 2 Authentication**: Uses service account from `credentials.json` (optional - only needed for Vertex AI features)
 
 ## Recent Changes (October 2025)
 
