@@ -146,7 +146,7 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
   return { description, videoPrompt };
 }
 
-async function generateVideoWithVertexAI(prompt: string, productName: string, productImageData?: string) {
+async function generateVideoWithVertexAI(prompt: string, productName: string, productImageData?: string | string[]) {
   const projectId = process.env.VERTEX_PROJECT_ID;
   
   if (!projectId) {
@@ -184,37 +184,49 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
   };
 
   if (productImageData) {
-    let base64Data: string;
+    const imageDataArray = Array.isArray(productImageData) ? productImageData : [productImageData];
     
-    if (productImageData.startsWith('http://') || productImageData.startsWith('https://')) {
-      console.log('Fetching product image from URL for Veo 2:', productImageData);
-      const imageResponse = await fetch(productImageData);
-      if (!imageResponse.ok) {
-        console.warn('Failed to fetch image for Veo 2, proceeding without reference image');
-      } else {
-        const imageBuffer = await imageResponse.arrayBuffer();
-        base64Data = Buffer.from(imageBuffer).toString('base64');
+    // If only 1 image, duplicate it 3 times to give Veo 2 more confidence
+    const imagesToProcess = imageDataArray.length === 1 
+      ? [imageDataArray[0], imageDataArray[0], imageDataArray[0]]
+      : imageDataArray;
+    
+    console.log(`Processing ${imagesToProcess.length} reference images for Veo 2 (${imageDataArray.length} unique)`);
+    
+    const referenceImages = [];
+    
+    for (const imgData of imagesToProcess) {
+      try {
+        let base64Data: string;
         
-        instance.referenceImages = [{
+        if (imgData.startsWith('http://') || imgData.startsWith('https://')) {
+          console.log('Fetching image from URL for Veo 2:', imgData.substring(0, 50) + '...');
+          const imageResponse = await fetch(imgData);
+          if (!imageResponse.ok) {
+            console.warn('Failed to fetch image, skipping');
+            continue;
+          }
+          const imageBuffer = await imageResponse.arrayBuffer();
+          base64Data = Buffer.from(imageBuffer).toString('base64');
+        } else {
+          base64Data = imgData.includes(',') ? imgData.split(',')[1] : imgData;
+        }
+        
+        referenceImages.push({
           image: {
             bytesBase64Encoded: base64Data,
             mimeType: 'image/jpeg'
           },
           referenceType: 'asset'
-        }];
-        console.log('Added product image as reference to Veo 2 request');
+        });
+      } catch (err) {
+        console.warn('Error processing reference image:', err);
       }
-    } else {
-      base64Data = productImageData.includes(',') ? productImageData.split(',')[1] : productImageData;
-      
-      instance.referenceImages = [{
-        image: {
-          bytesBase64Encoded: base64Data,
-          mimeType: 'image/jpeg'
-        },
-        referenceType: 'asset'
-      }];
-      console.log('Added product image as reference to Veo 2 request');
+    }
+    
+    if (referenceImages.length > 0) {
+      instance.referenceImages = referenceImages;
+      console.log(`Added ${referenceImages.length} reference images to Veo 2 request`);
     }
   }
   
@@ -676,7 +688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 5. Complete Workflow Endpoint (All-in-One)
   app.post('/api/generate-360-video', async (req: Request, res: Response) => {
     try {
-      const { imageData, productName = 'Product', shopifyProductId } = req.body;
+      const { imageData, additionalImages = [], productName = 'Product', shopifyProductId } = req.body;
       
       if (!imageData) {
         return res.status(400).json({ error: 'Image data is required' });
@@ -684,6 +696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const jobId = crypto.randomUUID();
       console.log(`[${jobId}] Starting 360° video generation for: ${productName}`);
+      console.log(`[${jobId}] Main image + ${additionalImages.length} additional angle(s)`);
 
       const videoGen = await storage.createVideoGeneration({
         productName,
@@ -692,19 +705,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       await storage.updateVideoGeneration(videoGen.id, { status: 'analyzing' });
-      console.log(`[${jobId}] Step 1: Uploading to ImageKit...`);
+      console.log(`[${jobId}] Step 1: Uploading images to ImageKit...`);
       
       let imageToAnalyze = imageData;
+      const allImageUrls: string[] = [];
+      
       try {
         const imagekitData = await uploadToImageKit(
           imageData,
-          `${productName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`
+          `${productName.replace(/[^a-z0-9]/gi, '_')}_main_${Date.now()}.jpg`
         );
         imageToAnalyze = imagekitData.url;
+        allImageUrls.push(imagekitData.url);
         await storage.updateVideoGeneration(videoGen.id, { imagekitUrl: imagekitData.url });
-        console.log(`[${jobId}] ImageKit upload successful: ${imagekitData.url}`);
+        console.log(`[${jobId}] Main image upload successful: ${imagekitData.url}`);
       } catch (err) {
-        console.warn(`[${jobId}] ImageKit upload failed, using original image:`, err);
+        console.warn(`[${jobId}] ImageKit upload failed for main image, using original:`, err);
+        allImageUrls.push(imageData);
+      }
+
+      // Upload additional images
+      for (let i = 0; i < additionalImages.length; i++) {
+        try {
+          const additionalData = await uploadToImageKit(
+            additionalImages[i],
+            `${productName.replace(/[^a-z0-9]/gi, '_')}_angle${i + 1}_${Date.now()}.jpg`
+          );
+          allImageUrls.push(additionalData.url);
+          console.log(`[${jobId}] Additional image ${i + 1} upload successful: ${additionalData.url}`);
+        } catch (err) {
+          console.warn(`[${jobId}] ImageKit upload failed for additional image ${i + 1}, using original:`, err);
+          allImageUrls.push(additionalImages[i]);
+        }
       }
 
       console.log(`[${jobId}] Step 2: Analyzing image with Gemini...`);
@@ -718,10 +750,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[${jobId}] Image analysis complete`);
 
       console.log(`[${jobId}] Step 3: Generating 360° video with Vertex AI Veo 2...`);
+      console.log(`[${jobId}] Sending ${allImageUrls.length} reference image(s) to Veo 2`);
       const { videoData, mimeType } = await generateVideoWithVertexAI(
         analysisData.videoPrompt,
         productName,
-        imageToAnalyze
+        allImageUrls
       );
 
       const videoBuffer = Buffer.from(videoData, 'base64');

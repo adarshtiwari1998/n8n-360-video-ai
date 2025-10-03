@@ -16,6 +16,7 @@ import type { ShopifyProduct } from "@shared/schema";
 export default function VideoGenerator() {
   const [activeTab, setActiveTab] = useState<"upload" | "shopify">("upload");
   const [selectedImage, setSelectedImage] = useState<string>("");
+  const [additionalImages, setAdditionalImages] = useState<string[]>([]);
   const [productName, setProductName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchType, setSearchType] = useState<"title" | "sku">("title");
@@ -49,7 +50,7 @@ export default function VideoGenerator() {
   });
 
   const videoGenerationMutation = useMutation({
-    mutationFn: async (data: { imageData: string; productName: string }) => {
+    mutationFn: async (data: { imageData: string; additionalImages?: string[]; productName: string }) => {
       setGenerationProgress(10);
       
       const res = await fetch('/api/generate-360-video', {
@@ -117,7 +118,41 @@ export default function VideoGenerator() {
     setProductName(product.title);
     if (product.images && product.images.length > 0) {
       setSelectedImage(product.images[0].url);
+      // Set additional images from Shopify (skip first image as it's the main one)
+      if (product.images.length > 1) {
+        setAdditionalImages(product.images.slice(1).map(img => img.url));
+      } else {
+        setAdditionalImages([]);
+      }
     }
+  };
+
+  const handleAdditionalImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const readers: Promise<string>[] = [];
+    
+    for (let i = 0; i < Math.min(files.length, 5); i++) {
+      const file = files[i];
+      if (!file.type.startsWith('image/')) continue;
+
+      readers.push(new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          resolve(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      }));
+    }
+
+    Promise.all(readers).then(images => {
+      setAdditionalImages(prev => [...prev, ...images]);
+    });
+  };
+
+  const removeAdditionalImage = (index: number) => {
+    setAdditionalImages(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleGenerateVideo = () => {
@@ -143,6 +178,7 @@ export default function VideoGenerator() {
     setVideoUrl("");
     videoGenerationMutation.mutate({
       imageData: selectedImage,
+      additionalImages: additionalImages.length > 0 ? additionalImages : undefined,
       productName,
     });
   };
@@ -180,7 +216,7 @@ export default function VideoGenerator() {
 
                 <TabsContent value="upload" className="space-y-4" data-testid="content-upload">
                   <div>
-                    <Label htmlFor="image-upload" data-testid="label-image">Product Image</Label>
+                    <Label htmlFor="image-upload" data-testid="label-image">Main Product Image</Label>
                     <Input
                       id="image-upload"
                       type="file"
@@ -189,6 +225,34 @@ export default function VideoGenerator() {
                       className="cursor-pointer"
                       data-testid="input-image-file"
                     />
+                  </div>
+                  <div>
+                    <Label htmlFor="additional-images" data-testid="label-additional">Additional Angles (Optional - up to 5 images)</Label>
+                    <Input
+                      id="additional-images"
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleAdditionalImageUpload}
+                      className="cursor-pointer"
+                      data-testid="input-additional-images"
+                    />
+                    {additionalImages.length > 0 && (
+                      <div className="mt-2 flex gap-2 flex-wrap">
+                        {additionalImages.map((img, idx) => (
+                          <div key={idx} className="relative group" data-testid={`preview-additional-${idx}`}>
+                            <img src={img} alt={`Additional ${idx + 1}`} className="w-16 h-16 object-cover rounded border" />
+                            <button
+                              onClick={() => removeAdditionalImage(idx)}
+                              className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              data-testid={`button-remove-${idx}`}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="product-name" data-testid="label-product-name">Product Name</Label>
