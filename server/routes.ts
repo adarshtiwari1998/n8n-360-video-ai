@@ -141,7 +141,7 @@ async function analyzeImageWithGemini(imageDataOrUrl: string, productName: strin
 
   const description = geminiData.candidates[0].content.parts[0].text;
   
-  const videoPrompt = `The exact ${productName} from the reference image rotates smoothly on a seamless pure white studio background. Perfect 360-degree turntable camera movement around the product. Professional studio lighting setup with bright, even illumination and subtle soft shadows beneath the product only. Pristine white backdrop with no gradients or color variations. The product maintains its exact appearance, colors, materials, and details from the reference image. Clean e-commerce product photography style. Modern commercial aesthetic with minimalist white environment. Camera: steady circular dolly shot. Lighting: bright key light, soft fill, white bounce cards. 8 seconds duration.`;
+  const videoPrompt = `The exact ${productName} from the reference images rotates smoothly on a seamless pure white studio background. PRESERVE EXACT PRODUCT APPEARANCE - maintain all colors, materials, design details, and branding from the reference images. Perfect 360-degree turntable camera movement around the product. Professional studio lighting setup with bright, even illumination and subtle soft shadows beneath the product only. Pristine white backdrop with no gradients or color variations. Keep the original product design unchanged. Clean e-commerce product photography style. Modern commercial aesthetic with minimalist white environment. Camera: steady circular dolly shot. Lighting: bright key light, soft fill, white bounce cards. 8 seconds duration.`;
 
   return { description, videoPrompt };
 }
@@ -180,7 +180,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
   
   const instance: any = {
     prompt: prompt,
-    negativePrompt: "grey background, gradient background, colored background, cluttered scene, busy environment, shadows on background, dark lighting, different product, modified product, text overlays, watermarks, people, hands, multiple objects"
+    negativePrompt: "grey background, gradient background, colored background, cluttered scene, busy environment, shadows on background, dark lighting, different product, modified product, altered product, changed product design, different colors, different materials, text overlays, watermarks, people, hands, multiple objects, product variations"
   };
 
   if (productImageData) {
@@ -217,7 +217,7 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
             bytesBase64Encoded: base64Data,
             mimeType: 'image/jpeg'
           },
-          referenceType: 'subject'
+          referenceType: 'asset'
         });
       } catch (err) {
         console.warn('Error processing reference image:', err);
@@ -235,7 +235,8 @@ async function generateVideoWithVertexAI(prompt: string, productName: string, pr
     parameters: {
       aspectRatio: '16:9',
       sampleCount: 1,
-      durationSeconds: 8
+      durationSeconds: 8,
+      seed: 42
     }
   };
 

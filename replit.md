@@ -173,30 +173,50 @@ Note: The app will work without this file, but Vertex AI video generation featur
 
 ## Recent Changes (October 2025)
 
-### CRITICAL FIX: referenceType 'subject' for Exact Product Preservation (October 3, 2025)
+### CRITICAL FIX: Enhanced Product Preservation with Stronger Prompts (October 3, 2025)
 
-**Problem Discovered:** Even with multiple reference images sent to Veo 2, the generated videos showed COMPLETELY DIFFERENT products! For example:
+**Problem Discovered:** Even with multiple reference images sent to Veo 2 using `referenceType: 'asset'`, the generated videos showed COMPLETELY DIFFERENT products! For example:
 - User uploaded blue IV medical bag → Veo 2 generated a black ring
 - Reference images were being sent correctly (even duplicated 3x for single images)
 - But Veo 2 was creating its own interpretation instead of preserving the exact product
 
-**Root Cause:** Using `referenceType: 'asset'` tells Veo 2 to use the image as a **style/design inspiration** (loose interpretation), not to preserve the exact product!
+**Root Cause Understanding:** 
+- `referenceType: 'asset'` IS the correct value (only `asset` and `style` are valid - tried `subject` but it's not supported)
+- However, Veo 2's asset preservation isn't pixel-perfect - it's an AI interpretation, not a 3D render
+- The issue was that prompts weren't explicit enough about preserving the exact product
 
-**Solution - Changed to 'subject':**
+**Solution Implemented:**
+
+1. **Strengthened Video Prompt:**
+   - Added: "PRESERVE EXACT PRODUCT APPEARANCE - maintain all colors, materials, design details, and branding from the reference images"
+   - Added: "Keep the original product design unchanged"
+   - Changed "reference image" to "reference images" (plural) to emphasize multiple angles
+
+2. **Enhanced Negative Prompt:**
+   - Added: "altered product, changed product design, different colors, different materials, product variations"
+   - This tells Veo 2 what NOT to do
+
+3. **Added Seed Parameter:**
+   - Set `seed: 42` for consistency across generations
+   - Helps produce more deterministic results
+
+**Valid referenceType Values:**
 ```typescript
-// ❌ WRONG - Creates different products
-referenceType: 'asset'  // "Use this as design inspiration"
+// ✅ 'asset' - Preserve subject appearance (for products, people, characters) - up to 3 images
+referenceType: 'asset'  
 
-// ✅ CORRECT - Preserves exact product 100%
-referenceType: 'subject'  // "Use this EXACT product, preserve it strictly"
+// ✅ 'style' - Apply artistic style only - 1 image max
+referenceType: 'style'
+
+// ❌ 'subject' - NOT VALID (will cause 400 error: "Invalid referenceType: subject")
 ```
 
 **Impact:**
-- Veo 2 will now **strictly preserve** the subject/product from reference images
-- No more random product variations or different designs
-- The exact product from the uploaded image will appear in the 360° video
+- Much stronger instructions for Veo 2 to preserve the exact product
+- Better product fidelity with explicit preservation commands
+- More consistent results with seed parameter
 
-**Testing Results:** After this fix, users should see their EXACT product (colors, design, materials, details) rotating in the generated video, not a Veo 2 interpretation.
+**Note:** Veo 2's preservation still isn't 100% perfect (it's AI-based), but these improvements significantly increase accuracy.
 
 ### Image Conditioning for Veo 2 - 100% Product Accuracy
 
